@@ -3,7 +3,6 @@ pub mod manager;
 
 use std::path::PathBuf;
 
-use home::home_dir;
 use log::debug;
 use manager::ConfigManager;
 
