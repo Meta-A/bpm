@@ -3,26 +3,19 @@ name = "cli"
 version = "0.1.0"
 edition = "2021"
 
-
-[features]
-default = ["blockchain_hedera", "blockchain_iota" ]
-
-blockchain_hedera = []
-blockchain_iota = []
-
 [dev-dependencies]
 cargo-tarpaulin.workspace = true
 
 [dependencies]
+core = { workspace = true }
 clap = { version = "4.5.19", features = ["derive"] }
-config = "0.14.0"
-env_logger.workspace = true
 home = "0.5.9"
-log.workspace = true
-serde = { version = "1.0.210", features = ["derive"] }
-serde_json = "1.0.128"
-serde_with = "3.11.0"
 tempfile = "3.13.0"
+tokio = { version = "1.40.0", features = ["macros", "rt-multi-thread"] }
+log.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin_include)"] }
+
+[profile.release]
+lto = true

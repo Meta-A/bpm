@@ -1,4 +1,4 @@
-pub mod app_config;
+pub mod core_config;
 pub mod manager;
 
 use std::path::PathBuf;

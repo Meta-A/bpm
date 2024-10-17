@@ -18,7 +18,7 @@ impl InstallCommand {
     /**
      * Installs package using package_name argument
      */
-    pub fn run(&self) {
+    pub async fn run(&self) {
         debug!("Subcommand install is being run...");
 
         let package_name = self.package_name.as_ref().unwrap();

@@ -8,9 +8,9 @@ use std::{
 use config::{Config, FileFormat};
 use log::debug;
 
-use super::app_config::AppConfig;
+use super::core_config::CoreConfig;
 
-const DEFAULT_CONFIG: AppConfig = AppConfig { proxy: None };
+const DEFAULT_CONFIG: CoreConfig = CoreConfig { proxy: None };
 
 /**
  * Configuration manager

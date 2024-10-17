@@ -1,6 +1,4 @@
-mod blockchains;
 mod commands;
-mod core;
 
 use core::config::init_config;
 use core::logging::init_logger;
@@ -11,7 +9,8 @@ use log::info;
  * Main CLI entry point
  */
 #[cfg(not(tarpaulin_include))]
-fn main() {
+#[tokio::main]
+async fn main() {
     init_logger(log::LevelFilter::Info);
 
     const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -22,5 +21,5 @@ fn main() {
 
     init_config(&config_path);
 
-    commands::bootstrap();
+    commands::bootstrap().await;
 }
