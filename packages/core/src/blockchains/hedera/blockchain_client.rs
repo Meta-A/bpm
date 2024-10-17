@@ -11,6 +11,7 @@ pub mod proto {
     tonic::include_proto!("mod");
 }
 
+use log::debug;
 use proto::{
     com::hedera::mirror::api::proto::{
         consensus_service_client::ConsensusServiceClient, ConsensusTopicQuery,
@@ -39,6 +40,10 @@ impl From<String> for HederaBlockchainClient {
      * Creates new HederaBlockchainClient instance using net address
      */
     fn from(network_address: String) -> Self {
+        debug!(
+            "Creating Hedera Blockchain Client from network address : {}...",
+            network_address
+        );
         // By default start from beginning
         let consensus_start_time = Some(Timestamp {
             seconds: 0,
@@ -47,12 +52,39 @@ impl From<String> for HederaBlockchainClient {
 
         let consensus_end_time = None;
 
-        Self {
+        let client = Self {
             network_address,
             topic: None,
             consensus_start_time,
             consensus_end_time,
+        };
+
+        debug!(
+            "Done creating Hedera Blockchain Client from network address : {} !",
+            client.network_address
+        );
+        client
+    }
+}
+
+impl BlockchainClient for HederaBlockchainClient {
+    fn get_net(&self) -> &String {
+        &self.network_address
+    }
+
+    async fn get_packages(&self) -> Result<(), Box<dyn std::error::Error>> {
+        println!("{}", self.get_net());
+        let package_builder = PackageBuilder::new();
+
+        let mut stream = self.subscribe_topic().await?;
+
+        while let Some(tm) = stream.try_next().await? {
+            let message = String::from_utf8(tm.message)?;
+
+            println!("{}", message);
         }
+
+        Ok(())
     }
 }
 
@@ -102,23 +134,56 @@ impl HederaBlockchainClient {
     }
 }
 
-impl BlockchainClient for HederaBlockchainClient {
-    fn get_net(&self) -> &String {
-        &self.network_address
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /**
+     * It should create client from network address
+     */
+    #[test]
+    fn test_create_client_from_network_address() {
+        let expected_net_address = "https://foobar.com:443";
+        let client = HederaBlockchainClient::from(expected_net_address.to_string());
+
+        assert_eq!(client.network_address, expected_net_address);
     }
 
-    async fn get_packages(&self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("{}", self.get_net());
-        let package_builder = PackageBuilder::new();
+    /**
+     * It should attach topic to client
+     */
+    #[test]
+    fn test_attach_topic_to_client() {
+        let topic_num_mock: i64 = 4000000;
+        let shard_num_mock: i64 = 0;
+        let real_num_mock: i64 = 0;
 
-        let mut stream = self.subscribe_topic().await?;
+        let expected_topic = TopicId {
+            topic_num: topic_num_mock,
+            shard_num: shard_num_mock,
+            realm_num: real_num_mock,
+        };
 
-        while let Some(tm) = stream.try_next().await? {
-            let message = String::from_utf8(tm.message)?;
+        let net_address_mock = "https://foobar.com:443";
+        let mut client = HederaBlockchainClient::from(net_address_mock.to_string());
 
-            println!("{}", message);
-        }
+        let client_with_topic = client.with_topic(
+            expected_topic.topic_num,
+            expected_topic.shard_num,
+            expected_topic.realm_num,
+        );
 
-        Ok(())
+        assert_eq!(client_with_topic.topic.unwrap(), expected_topic);
+    }
+
+    /**
+     * It should get network address
+     */
+    #[test]
+    fn test_get_network_address() {
+        let expected_net_address = "https://foobar.com:443";
+        let client = HederaBlockchainClient::from(expected_net_address.to_string());
+
+        assert_eq!(client.get_net(), expected_net_address);
     }
 }
