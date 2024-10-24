@@ -14,11 +14,28 @@ on:
 jobs:
   code-coverage:
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'pull_request' }}
+    # to run on more different versions for wider coverage
+    # strategy:
+    #   matrix:
+    #     rust: [stable, beta, nighly]
+    # if: ${{ github.event_name == 'pull_request' }}
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          # Directories to cache
+          path: |
+            ~/.cargo
+            target
+          # Key based on OS and Cargo.lock hash
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          # Fallback keys
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Set up Rust
         run: |
@@ -37,6 +54,7 @@ jobs:
       - name: Run code coverage using external script
           # Define repo level variable
         env:
+          COVERALLS_REPO_TOKEN: ${{ secrets.COVERALLS_REPO_TOKEN }}
           SKIP_CRATE: ${{ vars.SKIP_CRATE }}
         run: |
           chmod u+x scripts/run_coverage.sh
@@ -46,5 +64,5 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v3
         with:
-          name: coverage-lcov
-          path: "**/coverage/lcov.info"
+          name: coverage-badges
+          path: "*.md"
