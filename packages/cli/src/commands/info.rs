@@ -1,7 +1,14 @@
 use clap::Parser;
-use core::blockchains::{
-    abstractions::blockchain_client::BlockchainClient,
-    hedera::blockchain_client::HederaBlockchainClient,
+use core::{
+    blockchains::{
+        hedera::blockchain_client::HederaBlockchainClient,
+        traits::blockchain_reader::BlockchainReader,
+    },
+    package_managers::{
+        pacman::pacman_package_manager::PacmanPackageManager,
+        traits::package_manager::PackageManager,
+    },
+    packages::package::Package,
 };
 use log::{debug, info};
 /** Display information about given package */
@@ -21,20 +28,24 @@ impl InfoCommand {
     /**
      * Gather package information using package_name
      */
-    pub async fn run(&self) {
+    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         debug!("Subcommand info is being run...");
 
-        let network_address = "https://testnet.mirrornode.hedera.com:443";
+        let client = HederaBlockchainClient::new("4991716".to_string())?;
 
-        let mut client = HederaBlockchainClient::from(network_address.to_string());
+        //client.submit_package().await.unwrap();
+        client.fetch_packages().await.unwrap();
 
-        client
-            .with_topic(4991716, 0, 0)
-            .get_packages()
-            .await
-            .unwrap();
+        //let manager = PacmanPackageManager {};
+        //manager
+        //    .fetch_package_content(&Package {
+        //        name: "zsh".to_string(),
+        //        version: "1.0.0".to_string(),
+        //    })
+        //    .await?;
         //
         debug!("Subcommand info successfully ran !");
+        Ok(())
     }
 }
 

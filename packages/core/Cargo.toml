@@ -9,16 +9,28 @@ trait-variant = "0.1.2"
 serde = { version = "1.0.210", features = ["derive"] }
 tempfile = "3.13.0"
 serde_json = "1.0.128"
-serde_with = "3.11.0"
+serde_with = { version = "3.11.0", features = ["json"] }
 tonic = { version = "0.12.3", features = ["tls", "tls-native-roots"] }
 prost = "0.13.3"
 futures-util = "0.3.31"
 env_logger.workspace = true
+tokio = { version = "1", features = ["fs"] }
 log.workspace = true
+reqwest = "0.12.8"
+zstd = "0.13.2"
+tar = "0.4.42"
+walkdir = "2.5.0"
+hedera = "0.29.0"
+async-trait = "0.1.83"
+sha2 = "0.10.8"
+hex = "0.4.3"
 
 [build-dependencies]
 tonic-build = "0.12"
 
 [profile.release]
 lto = true
+
+[dev-dependencies]
+mockito = "1.5.0"
 

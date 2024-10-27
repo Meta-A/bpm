@@ -1,2 +1,3 @@
 coverage/
 tarpaulin_temp/**/*
+services_src

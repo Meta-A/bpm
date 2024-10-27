@@ -1,0 +1,3 @@
+[submodule "packages/core/src/blockchains/hedera/hedera-protobufs"]
+	path = packages/core/src/blockchains/hedera/hedera-protobufs
+	url = https://github.com/hashgraph/hedera-protobufs.git
