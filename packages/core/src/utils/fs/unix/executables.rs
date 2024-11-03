@@ -59,7 +59,7 @@ mod tests {
         let file_path = test_dir.path().join("non_executable");
 
         // Create the file
-        let file = File::create(&file_path)?;
+        File::create(&file_path)?;
 
         let metadata = fs::metadata(file_path)?;
         let executable = is_executable(&metadata);

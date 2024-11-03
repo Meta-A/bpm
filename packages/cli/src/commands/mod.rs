@@ -1,33 +1,57 @@
-mod info;
 mod install;
 mod submit;
 
 use clap::Parser;
-use core::config::manager::ConfigManager;
-use info::InfoCommand;
+use core::{
+    blockchains::{blockchain::BlockchainClient, hedera::blockchain_client::HederaBlockchain},
+    config::manager::ConfigManager,
+    db::client::DbClient,
+    services::blockchains::BlockchainsService,
+};
+use dialoguer::{theme::ColorfulTheme, Select};
 use install::InstallCommand;
+use std::{rc::Rc, sync::Arc};
 use submit::SubmitCommand;
+use tokio::sync::Mutex;
+
 #[derive(Debug, Parser)]
 enum BbpmCLIOptions {
     #[clap(name = "install")]
     Install(InstallCommand),
-
-    #[clap(name = "info")]
-    Info(InfoCommand),
 
     #[clap(name = "submit")]
     Submit(SubmitCommand),
 }
 
 impl BbpmCLIOptions {
+    async fn blockchain_prompt(
+        &self,
+        config_manager: &mut ConfigManager,
+        blockchains_service: &Arc<BlockchainsService>,
+    ) {
+        // TODO: save selection
+        let clients = blockchains_service.get_clients();
+        let selections = clients.lock().await;
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Which blockchain would you like to use ?")
+            .default(0)
+            .items(&selections[..])
+            .interact()
+            .unwrap();
+
+        blockchains_service.set_client(selection).await;
+    }
+
     pub async fn run(
         &self,
         config_manager: &mut ConfigManager,
+        blockchains_service: &Arc<BlockchainsService>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.blockchain_prompt(config_manager, &blockchains_service)
+            .await;
         match self {
-            Self::Install(install) => install.run().await,
-            Self::Info(info) => info.run().await?,
-            Self::Submit(submit) => submit.run().await?,
+            Self::Install(install) => install.run(&config_manager, &blockchains_service).await,
+            Self::Submit(submit) => submit.run(&config_manager, blockchains_service).await?,
         }
 
         Ok(())
@@ -40,10 +64,11 @@ impl BbpmCLIOptions {
 #[cfg(not(tarpaulin_include))]
 pub async fn bootstrap(
     config_manager: &mut ConfigManager,
+    blockchains_service: &Arc<BlockchainsService>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let args = BbpmCLIOptions::parse();
 
-    args.run(config_manager).await?;
+    args.run(config_manager, blockchains_service).await?;
 
     Ok(())
 }

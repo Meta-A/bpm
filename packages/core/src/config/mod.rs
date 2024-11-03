@@ -14,9 +14,9 @@ pub fn init_config(path: &PathBuf) -> ConfigManager {
         path_display
     );
 
-    let config_file_path = path.join(".bbpm").join("config.json");
+    let config_path = path.join(".bpm");
 
-    let config_manager = ConfigManager::from(&config_file_path).unwrap();
+    let config_manager = ConfigManager::from(&config_path);
 
     debug!(
         "Done initializing config file using location {} !",

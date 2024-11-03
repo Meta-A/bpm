@@ -1,0 +1,3 @@
+struct PackagesService;
+
+impl PackagesService {}

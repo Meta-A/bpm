@@ -1,16 +1,17 @@
 use clap::Parser;
+use colored::*;
 use core::{
-    blockchains::{
-        hedera::blockchain_client::HederaBlockchainClient,
-        traits::blockchain_writer::BlockchainWriter,
-    },
+    config::manager::ConfigManager,
     packages::{
+        package::DEFAULT_PACKAGE_STATUS,
         package_builder::PackageBuilder,
-        utils::integrity::{compute_package_archive_hash, compute_package_binaries_hashes},
+        utils::{integrity::compute_package_file_hash, signatures::sign_package},
     },
+    services::blockchains::BlockchainsService,
 };
+use dialoguer::{theme::ColorfulTheme, Confirm};
 use log::{debug, info};
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 /** Submit package using sources  */
 #[derive(Debug, Parser)]
@@ -47,31 +48,72 @@ impl SubmitCommand {
     /**
      * Submit command
      */
-    pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn run(
+        &self,
+        config_manager: &ConfigManager,
+        blockchains_service: &Arc<BlockchainsService>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         debug!("Subcommand submit is being run...");
 
-        let blockchain: Box<dyn BlockchainWriter> =
-            Box::new(HederaBlockchainClient::new("4991716".to_string())?);
         let package_name = self.package_name.as_ref().unwrap();
         let package_version = self.package_version.as_ref().unwrap();
         //let sources_directory = self.package_sources_directory.as_ref().unwrap();
         let package_archive_directory =
             PathBuf::from(self.package_archive_directory.as_ref().unwrap());
 
-        // TODO: Bad find way to dynamically pass hasher
-        let integrity_alg = "SHA256".to_string();
+        // Get maintainer signing key
 
-        let package_content_hash = compute_package_archive_hash(package_archive_directory).await?;
+        let verifying_key = config_manager.get_verifying_key()?;
 
+        // Compute hashes
+
+        let (package_archive_hash, integrity_algorithm) =
+            compute_package_file_hash(&package_archive_directory).await?;
+
+        //let package_source_code_hash =
+        //    compute_package_file_hash(&package_archive_directory).await?;
         let mut builder = PackageBuilder::new();
 
+        // Build base package
         let package = builder
-            .set_package_name(package_name.to_string())
-            .set_package_version(package_version.to_string())
-            .set_package_integrity(integrity_alg, package_content_hash)
+            .set_name(package_name.to_string())
+            .set_version(package_version.to_string())
+            .set_status(DEFAULT_PACKAGE_STATUS)
+            .set_maintainer(verifying_key)
+            .set_integrity(integrity_algorithm, &package_archive_hash)
             .build();
 
-        blockchain.submit_package(&package).await?;
+        // Sign package
+
+        let mut signing_key = config_manager.get_signing_key()?;
+
+        let package_sig = sign_package(&package, &mut signing_key);
+
+        let signed_package = PackageBuilder::from_package(&package)
+            .set_signature(package_sig)
+            .build();
+
+        verifying_key.verify_strict(package.compute_data_integrity().as_slice(), &package_sig)?;
+
+        info!(
+            "{}",
+            "Following information will be published to the blockchain :"
+                .yellow()
+                .bold()
+        );
+
+        info!("{}", &signed_package);
+
+        if Confirm::with_theme(&ColorfulTheme::default())
+            .with_prompt("Do you want to continue?")
+            .interact()
+            .unwrap()
+        {
+            info!("Submitting package to blockchain...");
+            blockchains_service.submit_package(&signed_package).await;
+        } else {
+            println!("nevermind then :(");
+        }
 
         debug!("Subcommand submit successfully ran !");
 

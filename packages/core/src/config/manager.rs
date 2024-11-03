@@ -1,44 +1,39 @@
 use std::{
-    error::Error,
-    fs::{create_dir_all, File},
-    io::{BufWriter, Error as IOError, ErrorKind, Write},
+    fs::{self, create_dir_all, File},
+    io::{BufWriter, Error as IOError, Read, Write},
+    os::unix::fs::PermissionsExt,
     path::PathBuf,
 };
 
 use config::{Config, FileFormat};
+use ed25519::{
+    pkcs8::{spki::der::pem::LineEnding, DecodePrivateKey, EncodePrivateKey},
+    signature::rand_core::OsRng,
+};
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use log::debug;
+
+use crate::blockchains::blockchain::BlockchainClient;
 
 use super::core_config::CoreConfig;
 
 const DEFAULT_CONFIG: CoreConfig = CoreConfig { proxy: None };
 
+const PRIVATE_KEY_FILENAME: &str = "key.pem";
+
+const DB_FILENAME: &str = "db";
+
 /**
  * Configuration manager
  *
- * Manages reading / writing values to config file
+ * Manages BPM config ( config file, key generation.... )
  */
 pub struct ConfigManager {
-    pub path: PathBuf,
+    path: PathBuf,
+    current_blockchain: Option<Box<dyn BlockchainClient>>,
 }
 
 impl ConfigManager {
-    /**
-     * Write default config values to given file
-     */
-    fn write_default_config(file: &File) -> Result<(), IOError> {
-        debug!("Writing default config values...");
-
-        let mut writer = BufWriter::new(file);
-
-        serde_json::to_writer(&mut writer, &DEFAULT_CONFIG)?;
-
-        writer.flush()?;
-
-        debug!("Done writing default config values !");
-
-        Ok(())
-    }
-
     /**
      * Create config file at given path
      */
@@ -65,6 +60,62 @@ impl ConfigManager {
     }
 
     /**
+     * Write default config values to given file
+     */
+    fn write_default_config(file: &File) -> Result<(), IOError> {
+        debug!("Writing default config values...");
+
+        let mut writer = BufWriter::new(file);
+
+        serde_json::to_writer(&mut writer, &DEFAULT_CONFIG)?;
+
+        writer.flush()?;
+
+        debug!("Done writing default config values !");
+
+        Ok(())
+    }
+
+    /**
+     * Generate new key
+     */
+    fn generate_key() -> SigningKey {
+        debug!("Generating new key...");
+
+        let mut csprng = OsRng;
+        let signing_key: SigningKey = SigningKey::generate(&mut csprng);
+
+        debug!("Done generating new key !");
+
+        signing_key
+    }
+
+    /**
+     * Write key file
+     */
+
+    fn write_key_file(key_path: &PathBuf) -> Result<File, Box<dyn std::error::Error>> {
+        debug!("Writing key file...");
+
+        // Generate new key
+        let maintainer_signing_key = ConfigManager::generate_key();
+
+        let encoded_private_key = maintainer_signing_key.to_pkcs8_pem(LineEnding::LF)?;
+
+        let mut key_file = File::create(&key_path)?;
+
+        let mut key_file_permissions = key_file.metadata().unwrap().permissions();
+
+        key_file_permissions.set_mode(0o400);
+        fs::set_permissions(&key_path, key_file_permissions)?;
+
+        key_file.write_all(encoded_private_key.as_bytes())?;
+
+        debug!("Done writing key file !");
+
+        Ok(key_file)
+    }
+    /**
      * Load config
      */
     pub fn load(&self) -> Result<Config, IOError> {
@@ -85,33 +136,118 @@ impl ConfigManager {
     }
 
     /**
-     * Instantiates ConfigManager while making sure config file exists
+     * Handle initializing config for first time
      */
-    pub fn from(path: &PathBuf) -> Result<Self, Box<dyn Error>> {
+    fn init_config(directory_path: &PathBuf) -> Result<(), Box<dyn std::error::Error>> {
+        debug!("Initializing config directory...");
+
+        let config_exists = fs::exists(directory_path)?;
+
+        if config_exists == false {
+            debug!("Creating default config file...");
+            let config_file_path = directory_path.join("config.json");
+
+            ConfigManager::create_config_file(&config_file_path)?;
+            debug!("Done creating default config file !");
+
+            let key_path = directory_path.join(PRIVATE_KEY_FILENAME);
+            ConfigManager::write_key_file(&key_path)?;
+
+            debug!("Done initializing config directory !");
+        }
+
+        Ok(())
+    }
+
+    /**
+     * Get config path
+     */
+    pub fn get_db_path(&self) -> PathBuf {
+        self.path.join(DB_FILENAME)
+    }
+
+    /**
+     * Retrieve signing key
+     */
+    pub fn get_signing_key(&self) -> Result<SigningKey, Box<dyn std::error::Error>> {
+        debug!("Retrieving signing key...");
+
+        let key_file_path = self.path.join(PRIVATE_KEY_FILENAME);
+
+        let key_buf = fs::read_to_string(key_file_path)?;
+
+        let key = SigningKey::from_pkcs8_pem(key_buf.as_str())?;
+
+        debug!("Done retrieving signing key !");
+
+        Ok(key)
+    }
+
+    /**
+     * Retrieve verifying key
+     */
+    pub fn get_verifying_key(&self) -> Result<VerifyingKey, Box<dyn std::error::Error>> {
+        debug!("Retrieving verifying key...");
+
+        let signing_key = self.get_signing_key()?;
+
+        let verifying_key = signing_key.verifying_key();
+
+        debug!("Done retrieving verifying key !");
+
+        Ok(verifying_key)
+    }
+    //
+    //
+    // * Set current blockchain
+    // */
+    //pub fn set_current_blockchain(&mut self, blockchain: Box<dyn BlockchainClient>) {
+    //    self.current_blockchain = Some(blockchain);
+    //
+    //    ()
+    //}
+    //
+    //
+    // * Get current blockchain
+    // */
+    //pub fn get_current_blockchain(&self) -> &Box<dyn BlockchainClient> {
+    //    let blockchain = self.current_blockchain.as_ref().unwrap();
+    //
+    //    &blockchain
+    //}
+}
+
+impl From<&PathBuf> for ConfigManager {
+    /**
+     * Instantiate ConfigManager while making sure config file exists
+     */
+    fn from(directory_path: &PathBuf) -> Self {
         debug!(
             "Building ConfigManager using path {}...",
-            path.display().to_string()
+            directory_path.display().to_string()
         );
 
-        ConfigManager::create_config_file(path).unwrap_or_else(|error| {
-            if error.kind() == ErrorKind::AlreadyExists {
-                debug!("Configuration file already exists cannot create, skipping...");
-                let existing_file = File::open(&path).unwrap();
+        let config_exists = directory_path.exists();
 
-                existing_file
-            } else {
-                panic!("Could not create configuration file: {error:?}");
-            }
-        });
+        if !config_exists {
+            debug!("Config directory could not be found, creating one...");
 
-        let manager = ConfigManager { path: path.clone() };
+            ConfigManager::init_config(&directory_path).unwrap();
+
+            debug!("Done creating config directory !");
+        }
+
+        let manager = ConfigManager {
+            path: directory_path.clone(),
+            current_blockchain: None,
+        };
 
         debug!(
             "Done building ConfigManager using path {} !",
-            path.display().to_string()
+            directory_path.display().to_string()
         );
 
-        Ok(manager)
+        manager
     }
 }
 
@@ -160,7 +296,7 @@ mod tests {
 
         let expected_config_file_path = &test_dir.into_path().join("config.json");
 
-        let config_manager = ConfigManager::from(expected_config_file_path).unwrap();
+        let config_manager = ConfigManager::from(expected_config_file_path);
 
         assert_eq!(
             config_manager.path.as_os_str().to_str().unwrap(),
@@ -177,11 +313,11 @@ mod tests {
 
         let expected_config_file_path = &test_dir.into_path().join("config.json");
 
-        let mut config_manager = ConfigManager::from(expected_config_file_path).unwrap();
+        let mut config_manager = ConfigManager::from(expected_config_file_path);
 
         // Config file is now created, try to load it once again
 
-        config_manager = ConfigManager::from(expected_config_file_path).unwrap();
+        config_manager = ConfigManager::from(expected_config_file_path);
 
         assert_eq!(
             config_manager.path.as_os_str().to_str().unwrap(),
@@ -209,7 +345,7 @@ mod tests {
 
         let expected_config_file_path = &test_dir.into_path().join("");
 
-        ConfigManager::from(expected_config_file_path).unwrap();
+        ConfigManager::from(expected_config_file_path);
     }
 
     /**
@@ -221,7 +357,7 @@ mod tests {
 
         let expected_config_file_path = &test_dir.into_path().join("config.json");
 
-        let config_manager = ConfigManager::from(expected_config_file_path).unwrap();
+        let config_manager = ConfigManager::from(expected_config_file_path);
 
         config_manager.load().unwrap();
     }
