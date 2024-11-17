@@ -204,15 +204,9 @@ impl BlockchainsService {
         }
 
         // Update current blockchain's doc to set last sync time to now
-        let now = SystemTime::now();
-        let epoch_timestamp = now
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
-
         let doc = BlockchainDocumentBuilder::default()
             .set_label(client.get_label())
-            .set_last_synchronization(epoch_timestamp.to_string())
+            .set_last_synchronization(client.get_last_sync().await.to_string())
             .build();
 
         self.blockchains_repository.update(&doc).await;

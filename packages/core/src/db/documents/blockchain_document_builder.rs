@@ -6,18 +6,27 @@ pub struct BlockchainDocumentBuilder {
 }
 
 impl BlockchainDocumentBuilder {
+    /**
+     * Set label
+     */
     pub fn set_label(&mut self, label: String) -> &mut Self {
         self.label = Some(label);
 
         self
     }
 
+    /**
+     * Set blockchain last synchronization
+     */
     pub fn set_last_synchronization(&mut self, timestamp: String) -> &mut Self {
         self.last_synchronization = Some(timestamp);
 
         self
     }
 
+    /**
+     * Reset builder
+     */
     pub fn reset(&mut self) -> &mut Self {
         self.label = None;
         self.last_synchronization = None;
@@ -25,6 +34,9 @@ impl BlockchainDocumentBuilder {
         self
     }
 
+    /**
+     * Build from document
+     */
     pub fn from_document(doc: &BlockchainDocument) -> Self {
         let instance = Self {
             label: Some(doc.label.clone()),
@@ -34,6 +46,9 @@ impl BlockchainDocumentBuilder {
         instance
     }
 
+    /**
+     * Build document
+     */
     pub fn build(&mut self) -> BlockchainDocument {
         let doc = BlockchainDocument {
             label: self.label.clone().expect("Label must be set"),
