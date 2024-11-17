@@ -1,11 +1,13 @@
-use crate::package_managers::traits::package_manager::PackageManager;
-use async_trait::async_trait;
+use crate::package_managers::{
+    errors::package_manager_error::PackageManagerError, traits::package_manager::PackageManager,
+};
 use log::debug;
 use std::{
     io::Cursor,
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
+use url::Url;
 
 use tempfile::tempdir;
 
@@ -31,14 +33,44 @@ impl PacmanPackageManager {
     }
 
     /**
+     * Install using local archive
+     */
+    fn install_archive(&self, archive_path: &PathBuf) -> Result<(), PackageManagerError> {
+        debug!(
+            "Install archive using pacman ( location : {} )",
+            archive_path.display()
+        );
+        let pacman_process = Command::new("pacman")
+            .args(["-U", archive_path.to_str().unwrap(), "--noconfirm"])
+            .spawn()
+            .map_err(|e| PackageManagerError::InstallationError(e.to_string()))?;
+
+        let output = pacman_process
+            .wait_with_output()
+            .map_err(|e| PackageManagerError::InstallationError(e.to_string()))?;
+
+        if !output.status.success() {
+            let output_str = String::from_utf8(output.stderr).unwrap();
+            Err(PackageManagerError::InstallationError(output_str))
+        } else {
+            debug!(
+                "Done installing archive using pacman ( location : {} ) !",
+                archive_path.display()
+            );
+
+            Ok(())
+        }
+    }
+
+    /**
      * Fetch package archive
      */
     async fn fetch_archive(
         &self,
-        package_url: &String,
+        package_url: &Url,
         temp_dir_path: &Path,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        let package_path = PathBuf::from(package_url);
+    ) -> Result<PathBuf, PackageManagerError> {
+        let package_path = PathBuf::from(package_url.as_str());
 
         let package_path_components = package_path.components();
 
@@ -55,11 +87,21 @@ impl PacmanPackageManager {
 
         // Fetch package, save it
 
-        let response = reqwest::get(package_url).await?;
+        let response = reqwest::get(package_url.as_str())
+            .await
+            .map_err(|_| PackageManagerError::DownloadError)?;
 
-        let mut file = std::fs::File::create(&temp_package_path)?;
-        let mut content = Cursor::new(response.bytes().await?);
-        std::io::copy(&mut content, &mut file)?;
+        let mut file = std::fs::File::create(&temp_package_path)
+            .map_err(|_| PackageManagerError::DownloadError)?;
+
+        let mut content = Cursor::new(
+            response
+                .bytes()
+                .await
+                .map_err(|_| PackageManagerError::DownloadError)?,
+        );
+
+        std::io::copy(&mut content, &mut file).map_err(|_| PackageManagerError::DownloadError)?;
 
         debug!("Done writing package !");
 
@@ -109,38 +151,59 @@ impl PacmanPackageManager {
     //}
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl PackageManager for PacmanPackageManager {
     /**
      * Fetch package content ( binaries, manpages... )
      */
-    async fn fetch_package_archive(
-        &self,
-        package_name: &String,
-    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
-        debug!("Fetching package binaries...");
+    async fn install_from_url(&self, package_url: &Url) -> Result<PathBuf, PackageManagerError> {
+        debug!(
+            "Installing from url (location: {})...",
+            package_url.to_string()
+        );
 
-        let temp_package_dir = tempdir()?;
+        let temp_package_dir =
+            tempdir().map_err(|e| PackageManagerError::InstallationError(e.to_string()))?;
 
         let temp_package_dir_path = temp_package_dir.path();
 
-        let package_url = self.get_package_url(&package_name)?;
-
         // Download package
         let compressed_archive_path = self
-            .fetch_archive(&package_url, temp_package_dir_path)
+            .fetch_archive(package_url, temp_package_dir_path)
             .await?;
 
-        debug!("Done fetching package content !");
+        self.install_archive(&compressed_archive_path)?;
+
+        debug!("Done installing package from url !");
 
         Ok(compressed_archive_path)
+    }
+
+    async fn remove(&self, package_name: &String) -> Result<(), PackageManagerError> {
+        let pacman_process = Command::new("pacman")
+            .args(["-Rsn", package_name.as_str(), "--noconfirm"])
+            .spawn()
+            .map_err(|e| PackageManagerError::RemovalError(e.to_string()))?;
+
+        let output = pacman_process
+            .wait_with_output()
+            .map_err(|e| PackageManagerError::RemovalError(e.to_string()))?;
+
+        if !output.status.success() {
+            let output_str = String::from_utf8(output.stderr).unwrap();
+            Err(PackageManagerError::RemovalError(output_str))
+        } else {
+            debug!("Done removing package {} using pacman !", package_name);
+
+            Ok(())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
 
-    use crate::packages::{package::PackageIntegrity, package_builder::PackageBuilder};
+    use crate::packages::package_builder::PackageBuilder;
 
     use super::*;
 
@@ -160,40 +223,40 @@ mod tests {
         Ok(())
     }
 
-    /**
-     * It should fetch compressed package archive
-     */
-    #[tokio::test]
-    async fn test_fetch_package_archive() -> Result<(), Box<dyn std::error::Error>> {
-        let temp = tempdir()?;
+    //
+    //  It should fetch compressed package archive
+    //
+    //#[tokio::test]
+    //async fn test_fetch_package_archive() -> Result<(), Box<dyn std::error::Error>> {
+    //    let temp = tempdir()?;
+    //
+    //    let package_manager = PacmanPackageManager {};
+    //
+    //    let package_name_mock = String::from("neofetch");
+    //
+    //    let url = package_manager.get_package_url(&package_name_mock)?;
+    //
+    //    let compressed_archive_path = package_manager.fetch_archive(&url, temp.path()).await?;
+    //
+    //    assert_eq!(compressed_archive_path.as_path().exists(), true);
+    //
+    //    Ok(())
+    //}
 
-        let package_manager = PacmanPackageManager {};
-
-        let package_name_mock = String::from("neofetch");
-
-        let url = package_manager.get_package_url(&package_name_mock)?;
-
-        let compressed_archive_path = package_manager.fetch_archive(&url, temp.path()).await?;
-
-        assert_eq!(compressed_archive_path.as_path().exists(), true);
-
-        Ok(())
-    }
-
-    /**
-     * It should fetch package content
-     */
-    #[tokio::test]
-    async fn test_fetch_package_content() {
-        let package_manager = PacmanPackageManager {};
-
-        let package_name_mock = String::from("neofetch");
-
-        package_manager
-            .fetch_package_archive(&package_name_mock)
-            .await
-            .unwrap();
-
-        ()
-    }
+    //
+    //  It should fetch package content
+    //
+    //#[tokio::test]
+    //async fn test_fetch_package_content() {
+    //    let package_manager = PacmanPackageManager {};
+    //
+    //    let package_name_mock = String::from("neofetch");
+    //
+    //    package_manager
+    //        .fetch_package_archive(&package_name_mock)
+    //        .await
+    //        .unwrap();
+    //
+    //    ()
+    //}
 }

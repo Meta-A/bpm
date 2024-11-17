@@ -1,8 +1,15 @@
 use ed25519::Signature;
-use ed25519_dalek::VerifyingKey;
+use ed25519_dalek::{VerifyingKey, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH};
 use rlp::DecoderError;
+use url::Url;
 
-use super::package::{Package, PackageIntegrity, PackageStatus};
+use crate::db::documents::package_document::PackageDocument;
+
+use super::{
+    package::{Package, PackageStatus},
+    package_integrity::PackageIntegrity,
+    package_integrity_builder::PackageIntegrityBuilder,
+};
 
 #[derive(Default)]
 pub struct PackageBuilder {
@@ -26,6 +33,11 @@ pub struct PackageBuilder {
     maintainer: Option<VerifyingKey>,
 
     /**
+     * Pacakge archive url
+     */
+    archive_url: Option<Url>,
+
+    /**
      * Package integrity
      */
     integrity: Option<PackageIntegrity>,
@@ -38,6 +50,53 @@ pub struct PackageBuilder {
 
 impl PackageBuilder {
     /**
+     * Build from document
+     */
+    pub fn from_document(document: &PackageDocument) -> PackageBuilder {
+        // Package status
+        let package_status_integer = document.status as u8;
+        let package_status = PackageStatus::try_from(package_status_integer)
+            .expect("Could not convert package status from integer to enum");
+
+        // Package maintainer
+        let package_maintainer_decoded =
+            hex::decode(document.maintainer.clone()).expect("Could not decode package maintainer");
+
+        let mut package_maintainer_buf: [u8; PUBLIC_KEY_LENGTH] = [0; PUBLIC_KEY_LENGTH];
+
+        package_maintainer_buf.copy_from_slice(package_maintainer_decoded.as_slice());
+
+        let package_maintainer = VerifyingKey::from_bytes(&package_maintainer_buf)
+            .expect("Could not build key from decoded maintainer key");
+
+        // Package archive url
+        let archive_url = Url::parse(&document.archive_url.as_str()).unwrap();
+
+        // Package integrity
+
+        let package_integrity = PackageIntegrityBuilder::from_document(&document.integrity).build();
+
+        // Package signature
+
+        let mut package_signature_buf: [u8; SIGNATURE_LENGTH] = [0; SIGNATURE_LENGTH];
+
+        let decoded_sig = hex::decode(&document.sig).unwrap();
+        package_signature_buf.copy_from_slice(&decoded_sig);
+
+        let package_signature = Signature::from_bytes(&package_signature_buf);
+
+        Self {
+            name: Some(document.name.clone()),
+            version: Some(document.version.clone()),
+            status: Some(package_status),
+            maintainer: Some(package_maintainer),
+            archive_url: Some(archive_url),
+            integrity: Some(package_integrity),
+            sig: Some(package_signature),
+        }
+    }
+
+    /**
      * Create new package builder instance
      */
     pub fn new() -> Self {
@@ -46,6 +105,7 @@ impl PackageBuilder {
             version: None,
             status: None,
             maintainer: None,
+            archive_url: None,
             integrity: None,
             sig: None,
         }
@@ -59,6 +119,7 @@ impl PackageBuilder {
         self.version = None;
         self.status = None;
         self.maintainer = None;
+        self.archive_url = None;
         self.integrity = None;
         self.sig = None;
         self
@@ -73,6 +134,7 @@ impl PackageBuilder {
             version: Some(package.version.clone()),
             status: Some(package.status.clone()),
             maintainer: Some(package.maintainer),
+            archive_url: Some(package.archive_url.clone()),
             integrity: Some(package.integrity.clone()),
             sig: package.sig,
         };
@@ -91,6 +153,7 @@ impl PackageBuilder {
             version: Some(package.version),
             status: Some(package.status),
             maintainer: Some(package.maintainer),
+            archive_url: Some(package.archive_url),
             integrity: Some(package.integrity),
             sig: package.sig,
         };
@@ -131,6 +194,14 @@ impl PackageBuilder {
     }
 
     /**
+     * Set archive url
+     */
+    pub fn set_archive_url(&mut self, archive_url: Url) -> &mut Self {
+        self.archive_url = Some(archive_url);
+        self
+    }
+
+    /**
      * Set package integrity data
      */
     pub fn set_integrity(&mut self, integrity_alg: String, archive_hash: &[u8]) -> &mut Self {
@@ -164,6 +235,10 @@ impl PackageBuilder {
                 .maintainer
                 .clone()
                 .expect("Package maintainer must be set"),
+            archive_url: self
+                .archive_url
+                .clone()
+                .expect("Package archive url must be set"),
             integrity: self
                 .integrity
                 .clone()
@@ -181,10 +256,7 @@ impl PackageBuilder {
 #[cfg(test)]
 mod tests {
 
-    use crate::packages::{
-        package::{Package, PackageIntegrity},
-        package_builder::PackageBuilder,
-    };
+    use crate::packages::{package::Package, package_builder::PackageBuilder};
 
     // * It should reset package
     //#[test]

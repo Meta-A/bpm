@@ -1,5 +1,3 @@
-use async_trait::async_trait;
-
 #[async_trait::async_trait]
 pub trait Repository<T, K> {
     async fn read_all(&self) -> Vec<T>;

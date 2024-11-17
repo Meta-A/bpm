@@ -20,10 +20,15 @@ use core::{
 #[cfg(not(tarpaulin_include))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    init_logger(log::LevelFilter::Debug);
+    use core::services::{
+        db::packages_repository::PackagesRepository, package_managers::PackageManagersService,
+        packages::PackagesService,
+    };
+
+    init_logger(log::LevelFilter::Info);
     const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-    info!("BBPM v{}", VERSION);
+    info!("BPM v{}", VERSION);
 
     let config_path = home_dir().unwrap();
 
@@ -31,13 +36,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db_client = Arc::new(DbClient::from(&config_manager.get_db_path()));
 
+    // Repositories
     let blockchains_repository = Arc::new(BlockchainsRepository::from(&db_client));
+    let packages_repository = Arc::new(PackagesRepository::from(&db_client));
 
-    let blockchains_service = Arc::new(BlockchainsService::from(&blockchains_repository));
+    // Services
+    let package_managers_service = Arc::new(PackageManagersService::new());
+
+    package_managers_service.init_package_managers().await;
+
+    let packages_service = Arc::new(PackagesService::from(&packages_repository));
+    let blockchains_service =
+        Arc::new(BlockchainsService::new(&blockchains_repository, &packages_service).await);
 
     blockchains_service.init_blockchains().await;
 
-    commands::bootstrap(&mut config_manager, &blockchains_service).await?;
+    commands::bootstrap(
+        &mut config_manager,
+        &blockchains_service,
+        &packages_service,
+        &package_managers_service,
+    )
+    .await?;
 
     Ok(())
 }

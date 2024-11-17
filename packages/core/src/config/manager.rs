@@ -1,6 +1,6 @@
 use std::{
     fs::{self, create_dir_all, File},
-    io::{BufWriter, Error as IOError, Read, Write},
+    io::{BufWriter, Error as IOError, Write},
     os::unix::fs::PermissionsExt,
     path::PathBuf,
 };
@@ -12,8 +12,6 @@ use ed25519::{
 };
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use log::debug;
-
-use crate::blockchains::blockchain::BlockchainClient;
 
 use super::core_config::CoreConfig;
 
@@ -30,7 +28,6 @@ const DB_FILENAME: &str = "db";
  */
 pub struct ConfigManager {
     path: PathBuf,
-    current_blockchain: Option<Box<dyn BlockchainClient>>,
 }
 
 impl ConfigManager {
@@ -239,7 +236,6 @@ impl From<&PathBuf> for ConfigManager {
 
         let manager = ConfigManager {
             path: directory_path.clone(),
-            current_blockchain: None,
         };
 
         debug!(

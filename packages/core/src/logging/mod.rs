@@ -24,6 +24,9 @@ pub fn init_logger(default_level: log::LevelFilter) -> log::LevelFilter {
         .filter_level(level)
         .format_target(false)
         .format_timestamp(None)
+        // TODO : We have to filter it because it emits warning when using tonic, find better way
+        // to handle it
+        .filter_module("hedera", log::LevelFilter::Error)
         .init();
 
     level

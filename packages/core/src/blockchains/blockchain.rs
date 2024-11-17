@@ -1,16 +1,18 @@
-use async_trait::async_trait;
 use log::debug;
 use rlp::DecoderError;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{self, Sender};
 
 use crate::packages::{
     package::Package, package_builder::PackageBuilder, utils::signatures::verify_package,
 };
 
+use super::errors::blockchain_error::BlockchainError;
+
 #[async_trait::async_trait]
 pub trait BlockchainIO: Send {
     async fn write(&self, data: &[u8]);
-    async fn read(&self, tx_data: &Sender<Vec<u8>>);
+    async fn read(&self, tx_data: &Sender<Result<Vec<u8>, BlockchainError>>);
 }
 
 #[async_trait::async_trait]
@@ -19,7 +21,7 @@ pub trait BlockchainClient: Sync + Send {
      * Write package
      */
     async fn write_package(&self, package: &Package) {
-        let io = self.create_io();
+        let io = self.create_io().await;
         debug!("Writing package {} to blockchain...", package.name);
 
         let encoded_package = rlp::encode(package);
@@ -31,8 +33,11 @@ pub trait BlockchainClient: Sync + Send {
     /**
      * Read packages from blockchain
      */
-    async fn read_packages(&self, tx_packages: &Sender<Package>) {
-        let io = self.create_io();
+    async fn read_packages(
+        &self,
+        tx_packages: &Sender<Result<Package, BlockchainError>>,
+    ) -> Result<(), BlockchainError> {
+        let io = self.create_io().await;
 
         let (tx_raw_bytes, mut rx_raw_bytes) = mpsc::channel(1);
 
@@ -40,7 +45,8 @@ pub trait BlockchainClient: Sync + Send {
             io.read(&tx_raw_bytes).await;
         });
 
-        while let Some(raw_bytes) = rx_raw_bytes.recv().await {
+        while let Some(raw_bytes_res) = rx_raw_bytes.recv().await {
+            let raw_bytes = raw_bytes_res?;
             let package_parsing_result: Result<PackageBuilder, DecoderError> =
                 PackageBuilder::from_rpl(raw_bytes.as_slice());
 
@@ -64,14 +70,19 @@ pub trait BlockchainClient: Sync + Send {
                 }
             };
 
-            tx_packages.send(trusted_package.clone()).await.unwrap();
+            tx_packages.send(Ok(trusted_package.clone())).await.unwrap();
         }
-    }
 
-    /**
-     * Get last sync
-     */
-    fn get_last_sync(&self) -> u64;
+        let current_time = SystemTime::now();
+        let epoch_timestamp = current_time
+            .duration_since(UNIX_EPOCH)
+            .expect("Time went backwards")
+            .as_secs();
+
+        self.set_last_sync(epoch_timestamp).await;
+
+        Ok(())
+    }
 
     /**
      * Get network
@@ -86,7 +97,17 @@ pub trait BlockchainClient: Sync + Send {
     /**
      * Create blockchain IO
      */
-    fn create_io(&self) -> Box<dyn BlockchainIO>;
+    async fn create_io(&self) -> Box<dyn BlockchainIO>;
+
+    /**
+     * Set last sync
+     */
+    async fn set_last_sync(&self, last_sync: u64);
+
+    /**
+     * Get last sync
+     */
+    async fn get_last_sync(&self) -> u64;
 }
 
 impl std::fmt::Display for dyn BlockchainClient {

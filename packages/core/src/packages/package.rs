@@ -1,14 +1,15 @@
+use crate::packages::package_integrity::PackageIntegrity;
+
 use super::package_builder::PackageBuilder;
-use base64::prelude::*;
 use core::fmt;
-use ed25519::pkcs8::spki::der::pem::Base64Encoder;
 use ed25519::Signature;
 use ed25519_dalek::{VerifyingKey, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH};
-use polodb_core::bson::{Binary, Bson, Document};
 use rlp::{Decodable, DecoderError, Encodable, RlpStream};
 use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{ser::SerializeStruct, Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use strum_macros::{Display, EnumIter, EnumString};
+use url::Url;
 
 pub const DEFAULT_PACKAGE_STATUS: PackageStatus = PackageStatus::Fine;
 
@@ -16,28 +17,21 @@ pub const DEFAULT_PACKAGE_STATUS: PackageStatus = PackageStatus::Fine;
  * Package status
  */
 
+#[derive(EnumIter, EnumString, PartialEq, Eq, PartialOrd, Display, Debug, Clone)]
 #[repr(u8)]
-#[derive(Debug, Clone)]
 pub enum PackageStatus {
+    #[strum(to_string = "NA")]
     NA = 0x00,
+    #[strum(to_string = "Prohibited")]
     Prohibited = 0x01,
+    #[strum(to_string = "Outdated")]
     Outdated = 0x02,
+    #[strum(to_string = "Fine")]
     Fine = 0x03,
+    #[strum(to_string = "Recommended")]
     Recommended = 0x04,
+    #[strum(to_string = "Highly recommended")]
     HighlyRecommended = 0x05,
-}
-
-impl fmt::Display for PackageStatus {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            PackageStatus::NA => write!(f, "NA"),
-            PackageStatus::Prohibited => write!(f, "Prohibited"),
-            PackageStatus::Outdated => write!(f, "Outdated"),
-            PackageStatus::Fine => write!(f, "Fine"),
-            PackageStatus::Recommended => write!(f, "Recommended"),
-            PackageStatus::HighlyRecommended => write!(f, "Highly recommended"),
-        }
-    }
 }
 
 impl TryFrom<u8> for PackageStatus {
@@ -56,42 +50,6 @@ impl TryFrom<u8> for PackageStatus {
 }
 
 /**
- * Package integrity fields
- */
-#[serde_with::serde_as]
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
-pub struct PackageIntegrity {
-    pub algorithm: String,
-    pub archive_hash: Vec<u8>,
-    //pub source_code_hash: String,
-}
-
-impl Encodable for PackageIntegrity {
-    fn rlp_append(&self, s: &mut rlp::RlpStream) {
-        s.begin_unbounded_list()
-            // Algorithm
-            .append(&self.algorithm)
-            // Archive hash
-            .append(&self.archive_hash)
-            .finalize_unbounded_list();
-    }
-}
-
-impl Decodable for PackageIntegrity {
-    fn decode(rlp: &rlp::Rlp) -> Result<Self, rlp::DecoderError> {
-        let algorithm: String = rlp.val_at(0)?;
-        let archive_hash: Vec<u8> = rlp.val_at(1)?;
-
-        let package_integrity = Self {
-            algorithm,
-            archive_hash,
-        };
-
-        Ok(package_integrity)
-    }
-}
-
-/**
  * Package
  */
 #[derive(Debug, Clone)]
@@ -100,29 +58,9 @@ pub struct Package {
     pub version: String,
     pub status: PackageStatus,
     pub maintainer: VerifyingKey, // Maintainer is identified by its public key
+    pub archive_url: Url,         // TODO: Convert to list
     pub integrity: PackageIntegrity,
     pub sig: Option<Signature>,
-}
-
-// DB encoding
-impl Into<Bson> for &Package {
-    fn into(self) -> Bson {
-        let mut doc = Document::new();
-
-        doc.insert("name", &self.name);
-
-        doc.insert("version", &self.version);
-
-        let encoded_maintainer = BASE64_STANDARD.encode(self.maintainer.to_bytes());
-        let maintainer_key = Binary::from_base64(encoded_maintainer, None).unwrap();
-        doc.insert("maintainer", maintainer_key);
-
-        let encoded_sig = BASE64_STANDARD.encode(self.sig.unwrap().to_bytes());
-        let sig = Binary::from_base64(encoded_sig, None).unwrap();
-        doc.insert("sig", sig);
-
-        Bson::Document(doc)
-    }
 }
 
 impl Package {
@@ -149,7 +87,6 @@ impl Package {
         let mut stream = rlp::RlpStream::new();
 
         let encoded_status = self.status.clone() as u8;
-
         stream
             // Package name
             .append(&self.name)
@@ -159,6 +96,8 @@ impl Package {
             .append(&encoded_status)
             // Package maintainer
             .append(&self.maintainer.to_bytes().as_slice())
+            // Package archive urls
+            .append(&self.archive_url.as_str())
             // Package integrity
             .append_list(&encoded_package_integrity);
 
@@ -211,6 +150,7 @@ impl<'de> Deserialize<'de> for Package {
             Version,
             Status,
             Maintainer,
+            ArchiveUrl,
             Integrity,
             Sig,
         }
@@ -257,11 +197,17 @@ impl<'de> Deserialize<'de> for Package {
                     .map_err(|_| DecoderError::RlpExpectedToBeData)
                     .unwrap();
 
+                // Parse url
+                let raw_url: &str = seq
+                    .next_element()?
+                    .ok_or_else(|| de::Error::invalid_length(4, &self))?;
+                let archive_url = Url::parse(raw_url).unwrap();
+
                 // Parse integrity
 
                 let integrity: PackageIntegrity = seq
                     .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(4, &self))?;
+                    .ok_or_else(|| de::Error::invalid_length(5, &self))?;
 
                 // Parse signature
 
@@ -269,7 +215,7 @@ impl<'de> Deserialize<'de> for Package {
 
                 let sig_bytes: Vec<u8> = seq
                     .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(5, &self))?;
+                    .ok_or_else(|| de::Error::invalid_length(6, &self))?;
 
                 sig_buf.copy_from_slice(&sig_bytes);
 
@@ -280,6 +226,7 @@ impl<'de> Deserialize<'de> for Package {
                     version,
                     status,
                     maintainer,
+                    archive_url,
                     integrity,
                     sig: Some(sig),
                 };
@@ -294,6 +241,7 @@ impl<'de> Deserialize<'de> for Package {
                 let mut version = None;
                 let mut status = None;
                 let mut maintainer = None;
+                let mut archive_url = None;
                 let mut integrity = None;
                 let mut sig = None;
                 while let Some(key) = map.next_key()? {
@@ -340,6 +288,16 @@ impl<'de> Deserialize<'de> for Package {
                                     .unwrap(),
                             );
                         }
+
+                        Field::ArchiveUrl => {
+                            if archive_url.is_some() {
+                                return Err(de::Error::duplicate_field("archive_url"));
+                            }
+
+                            let raw_url = map.next_value()?;
+                            archive_url = Some(Url::parse(raw_url).unwrap());
+                        }
+
                         Field::Integrity => {
                             if integrity.is_some() {
                                 return Err(de::Error::duplicate_field("integrity"));
@@ -368,6 +326,8 @@ impl<'de> Deserialize<'de> for Package {
                 let maintainer =
                     maintainer.ok_or_else(|| de::Error::missing_field("maintainer"))?;
 
+                let archive_url =
+                    archive_url.ok_or_else(|| de::Error::missing_field("archive_url"))?;
                 let integrity = integrity.ok_or_else(|| de::Error::missing_field("integrity"))?;
                 let sig = sig.ok_or_else(|| de::Error::missing_field("sig"))?;
 
@@ -376,6 +336,7 @@ impl<'de> Deserialize<'de> for Package {
                     version,
                     status,
                     maintainer,
+                    archive_url,
                     integrity,
                     sig,
                 };
@@ -432,8 +393,13 @@ impl Decodable for Package {
             .map_err(|_| DecoderError::RlpExpectedToBeData)
             .unwrap();
 
+        // Parse archive url
+        let raw_archive_url: String = rlp.val_at(4)?;
+
+        let archive_url = Url::parse(raw_archive_url.as_str()).unwrap();
+
         // Parse integrity struct
-        let raw_package_integrity = rlp.list_at(4)?;
+        let raw_package_integrity = rlp.list_at(5)?;
 
         let package_integrity: PackageIntegrity = rlp::decode(&raw_package_integrity)?;
 
@@ -441,7 +407,7 @@ impl Decodable for Package {
 
         let mut sig_buf: [u8; SIGNATURE_LENGTH] = [0; SIGNATURE_LENGTH];
 
-        let sig_bytes: Vec<u8> = rlp.val_at(5)?;
+        let sig_bytes: Vec<u8> = rlp.val_at(6)?;
 
         sig_buf.copy_from_slice(&sig_bytes);
 
@@ -453,6 +419,7 @@ impl Decodable for Package {
             version,
             status,
             maintainer,
+            archive_url,
             integrity: package_integrity,
             sig: Some(sig),
         };
@@ -463,34 +430,17 @@ impl Decodable for Package {
 
 impl fmt::Display for Package {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let sig = match self.sig {
-            Some(v) => hex::encode(v.to_bytes()),
-            None => String::from("<No signature attached>"),
-        };
-
-        write!(f, "--- Package information ---\n\n")?;
-        write!(f, "Name => {} \n", self.name)?;
-        write!(f, "Version => {} \n", self.version)?;
-        write!(f, "Status => {} \n", self.status)?;
-
         write!(
             f,
-            "Maintainer => {}\n",
-            hex::encode_upper(self.maintainer.to_bytes())
+            "{}:{} ( Status : {}, Maintainer : {} )",
+            self.name,
+            self.version,
+            self.status,
+            hex::encode_upper(self.maintainer)
         )?;
-
-        write!(f, "Package integrity :\n")?;
-        write!(f, "\tAlgorithm => {} \n", self.integrity.algorithm)?;
-        write!(
-            f,
-            "\tArchive hash => {} \n",
-            hex::encode(&self.integrity.archive_hash)
-        )?;
-        write!(f, "\tSource code hash =>\n")?;
-
-        write!(f, "Signature => {}\n", sig)?;
 
         Ok(())
+        //Ok(())
     }
 }
 

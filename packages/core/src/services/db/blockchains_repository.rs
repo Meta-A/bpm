@@ -1,9 +1,5 @@
-use async_trait::async_trait;
 use log::debug;
-use polodb_core::{
-    bson::{doc, Bson},
-    Collection, CollectionT,
-};
+use polodb_core::{bson::doc, CollectionT};
 use std::sync::Arc;
 
 use crate::db::{
