@@ -111,18 +111,30 @@ impl InstallCommand {
         // Ask which matching package to install
 
         let package_name = self.package_name.clone().unwrap();
-        let package_version = self.package_version.clone().unwrap();
+        let package_version = match self.package_version.clone() {
+            Some(version) => version,
+            _ => {
+                error!("Please specify a package version as CLI does not support latest tags for now, currently WIP");
+                return;
+            }
+        };
 
         let matching_packages = blockchains_service
             .find_package(&package_name, &package_version)
             .await;
 
-        let selection = Select::with_theme(&ColorfulTheme::default())
+        let selection = match Select::with_theme(&ColorfulTheme::default())
             .with_prompt("BPM found these matches :")
             .default(0)
             .items(&matching_packages[..])
             .interact()
-            .unwrap();
+        {
+            Ok(selection) => selection,
+            Err(e) => {
+                error!("Could not find matching packages, reason : {}", e);
+                return;
+            }
+        };
 
         let selected_package = matching_packages.get(selection).unwrap();
         let package_manager = package_managers_service
