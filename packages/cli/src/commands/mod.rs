@@ -1,27 +1,93 @@
-mod info;
 mod install;
+mod mutate;
+mod remove;
+mod submit;
 
 use clap::Parser;
-use info::InfoCommand;
+use core::{
+    config::manager::ConfigManager,
+    services::{blockchains::BlockchainsService, packages::PackagesService},
+};
+use mutate::MutateCommand;
+use remove::RemoveCommand;
+
+use core::services::package_managers::PackageManagersService;
+use dialoguer::{theme::ColorfulTheme, Select};
 use install::InstallCommand;
+use std::sync::Arc;
+use submit::SubmitCommand;
 
 #[derive(Debug, Parser)]
 enum BbpmCLIOptions {
     #[clap(name = "install")]
     Install(InstallCommand),
 
-    #[clap(name = "info")]
-    Info(InfoCommand),
+    #[clap(name = "remove")]
+    Remove(RemoveCommand),
+
+    #[clap(name = "mutate")]
+    Mutate(MutateCommand),
+
+    #[clap(name = "submit")]
+    Submit(SubmitCommand),
 }
 
 impl BbpmCLIOptions {
-    pub async fn run(&self) -> &Self {
+    /**
+     * Prompt which blockchain to use
+     */
+    async fn blockchain_prompt(
+        &self,
+        config_manager: &mut ConfigManager,
+        blockchains_service: &Arc<BlockchainsService>,
+    ) {
+        // TODO: save selection
+        let clients = blockchains_service.get_clients();
+        let selections = clients.lock().await;
+        let selection = Select::with_theme(&ColorfulTheme::default())
+            .with_prompt("Which blockchain would you like to use ?")
+            .default(0)
+            .items(&selections[..])
+            .interact()
+            .unwrap();
+
+        blockchains_service.set_client(selection).await;
+    }
+
+    /**
+     * Code ran when CLI bootstraped
+     */
+    pub async fn run(
+        &self,
+        config_manager: &mut ConfigManager,
+        blockchains_service: &Arc<BlockchainsService>,
+        packages_service: &Arc<PackagesService>,
+        package_managers_service: &Arc<PackageManagersService>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        self.blockchain_prompt(config_manager, &blockchains_service)
+            .await;
         match self {
-            Self::Install(install) => install.run().await,
-            Self::Info(info) => info.run().await,
+            Self::Install(install) => {
+                install
+                    .run(
+                        &config_manager,
+                        &blockchains_service,
+                        package_managers_service,
+                    )
+                    .await
+            }
+            Self::Remove(remove) => {
+                remove.run(package_managers_service).await;
+            }
+            Self::Mutate(mutate) => {
+                mutate
+                    .run(&config_manager, &blockchains_service, &packages_service)
+                    .await;
+            }
+            Self::Submit(submit) => submit.run(&config_manager, blockchains_service).await?,
         }
 
-        self
+        Ok(())
     }
 }
 
@@ -29,25 +95,28 @@ impl BbpmCLIOptions {
  * Parse CLI args then run chain of commands
  */
 #[cfg(not(tarpaulin_include))]
-pub async fn bootstrap() {
+pub async fn bootstrap(
+    config_manager: &mut ConfigManager,
+    blockchains_service: &Arc<BlockchainsService>,
+    packages_service: &Arc<PackagesService>,
+    package_managers_service: &Arc<PackageManagersService>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use core::services::packages::PackagesService;
+
     let args = BbpmCLIOptions::parse();
 
-    args.run().await;
+    args.run(
+        config_manager,
+        blockchains_service,
+        packages_service,
+        package_managers_service,
+    )
+    .await?;
+
+    Ok(())
 }
 
 //#[cfg(test)]
 //mod tests {
 //    use super::*;
-//
-//    /**
-//     * It should run package installation command
-//     */
-//    #[test]
-//    fn test_run_package_installation() {
-//        let bppm_cli = BbpmCLIOptions::parse_from(vec!["bbpm", "install", "foobar"]);
-//
-//        let command = bppm_cli.run();
-//
-//        assert!(matches!(command, BbpmCLIOptions::Install { .. }));
-//    }
 //}

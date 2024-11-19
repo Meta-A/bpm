@@ -1,189 +1,250 @@
-use std::error::Error;
-
-use crate::{
-    blockchains::abstractions::blockchain_client::BlockchainClient,
-    packages::package_builder::PackageBuilder,
-};
+use crate::blockchains::blockchain::{BlockchainClient, BlockchainIO};
+use crate::blockchains::errors::blockchain_error::BlockchainError;
+use std::convert::TryFrom;
+use std::{env, str::FromStr, sync::Arc, time::Duration};
 
 use futures_util::TryStreamExt;
-
-pub mod proto {
-    tonic::include_proto!("mod");
+use hedera::{AccountId, Client, PrivateKey, TopicId, TopicMessageSubmitTransaction};
+pub mod hedera_mirror {
+    tonic::include_proto!("mirror");
 }
 
-use log::debug;
-use proto::{
+use hedera_mirror::{
     com::hedera::mirror::api::proto::{
         consensus_service_client::ConsensusServiceClient, ConsensusTopicQuery,
         ConsensusTopicResponse,
     },
-    proto::{Timestamp, TopicId},
+    proto::{Timestamp, TopicId as MirrorTopicId},
 };
+
+use tokio::sync::{mpsc::Sender, Mutex};
+
+use log::{debug, trace};
 use tonic::{
     transport::{Channel, ClientTlsConfig},
     Streaming,
 };
 
-/**
- * Represents Hedera blockchain client, in our case we only use HCS
- */
-#[derive(Clone)]
-pub struct HederaBlockchainClient {
-    network_address: String,
-    topic: Option<TopicId>,
-    consensus_start_time: Option<Timestamp>,
-    consensus_end_time: Option<Timestamp>,
+struct HederaBlockchainIO {
+    network: String,
+    last_sync: u64,
+    packages_topic: TopicId,
+    hedera_client: Client,
 }
 
-impl From<String> for HederaBlockchainClient {
+impl HederaBlockchainIO {
     /**
-     * Creates new HederaBlockchainClient instance using net address
+     * Create new gRPC channel to HCS
      */
-    fn from(network_address: String) -> Self {
-        debug!(
-            "Creating Hedera Blockchain Client from network address : {}...",
-            network_address
-        );
-        // By default start from beginning
-        let consensus_start_time = Some(Timestamp {
-            seconds: 0,
-            nanos: 0,
-        });
+    async fn new_channel(&self) -> Result<Channel, BlockchainError> {
+        debug!("Establishing new HCS channel...");
+        let tls = ClientTlsConfig::new().with_native_roots();
 
-        let consensus_end_time = None;
+        let remote_url = format!("https://{}", self.network.to_string()); // We must prefix scheme
 
-        let client = Self {
-            network_address,
-            topic: None,
-            consensus_start_time,
-            consensus_end_time,
-        };
+        let channel = Channel::from_shared(remote_url)
+            .map_err(|_| BlockchainError::ConnectionConfig)?
+            .tls_config(tls)
+            .map_err(|_| BlockchainError::ConnectionConfig)?
+            .connect()
+            .await
+            .map_err(|_| BlockchainError::ConnectionFailure)?;
 
-        debug!(
-            "Done creating Hedera Blockchain Client from network address : {} !",
-            client.network_address
-        );
-        client
-    }
-}
+        debug!("Done establishing new HCS channel !");
 
-impl BlockchainClient for HederaBlockchainClient {
-    fn get_net(&self) -> &String {
-        &self.network_address
-    }
-
-    async fn get_packages(&self) -> Result<(), Box<dyn std::error::Error>> {
-        println!("{}", self.get_net());
-        let package_builder = PackageBuilder::new();
-
-        let mut stream = self.subscribe_topic().await?;
-
-        while let Some(tm) = stream.try_next().await? {
-            let message = String::from_utf8(tm.message)?;
-
-            println!("{}", message);
-        }
-
-        Ok(())
-    }
-}
-
-impl HederaBlockchainClient {
-    /**
-     * Attaches HCS topic to client
-     */
-    pub fn with_topic(&mut self, topic_num: i64, shard_num: i64, realm_num: i64) -> &Self {
-        let target_topic = TopicId {
-            topic_num,
-            shard_num,
-            realm_num,
-        };
-
-        self.topic = Some(target_topic);
-
-        self
+        Ok(channel)
     }
 
     /**
-     * Subscribes to topic
+     * Subscribe to topic then return associated stream
      */
-    pub async fn subscribe_topic(
+    async fn new_topic_subscription(
         &self,
-    ) -> Result<Streaming<ConsensusTopicResponse>, Box<dyn Error>> {
+        topic: TopicId,
+        start_timestamp: u64,
+    ) -> Result<Streaming<ConsensusTopicResponse>, BlockchainError> {
+        debug!("Creating new topic subscription...");
+
         let query = ConsensusTopicQuery {
-            topic_id: self.topic,
-            consensus_start_time: self.consensus_start_time,
-            consensus_end_time: self.consensus_end_time,
+            topic_id: Some(MirrorTopicId {
+                realm_num: i64::try_from(topic.realm)
+                    .expect("Could not convert topic realm to i64"),
+                shard_num: i64::try_from(topic.shard).expect("Could not convert shard to i64"),
+                topic_num: i64::try_from(topic.num).expect("Could not convert topic num to i64"),
+            }),
+            consensus_start_time: Some(Timestamp {
+                nanos: 0,
+                seconds: i64::try_from(start_timestamp)
+                    .expect("Could not convert start time seconds to i64"),
+            }),
+            consensus_end_time: None,
             limit: 0,
         };
 
-        let tls = ClientTlsConfig::new().with_native_roots();
+        let reading_channel = self.new_channel().await?;
 
-        let channel = Channel::from_shared(self.network_address.clone())?
-            .tls_config(tls)?
-            .connect()
-            .await?;
+        let mut mirror_client = ConsensusServiceClient::new(reading_channel.clone());
 
-        let mut client = ConsensusServiceClient::new(channel);
+        const TIMEOUT: u64 = 1;
+        let response = tokio::time::timeout(
+            Duration::from_secs(TIMEOUT),
+            mirror_client.subscribe_topic(query),
+        )
+        .await
+        .map_err(|_| BlockchainError::NoPackagesData)?;
 
-        let response = client.subscribe_topic(query).await?;
-
-        let stream = response.into_inner();
-
+        let stream = response.unwrap().into_inner();
+        debug!("Done creating new topic subscription !");
         Ok(stream)
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
+#[async_trait::async_trait]
+impl BlockchainIO for HederaBlockchainIO {
     /**
-     * It should create client from network address
+     * Write to HCS
      */
-    #[test]
-    fn test_create_client_from_network_address() {
-        let expected_net_address = "https://foobar.com:443";
-        let client = HederaBlockchainClient::from(expected_net_address.to_string());
-
-        assert_eq!(client.network_address, expected_net_address);
+    async fn write(&self, data: &[u8]) {
+        TopicMessageSubmitTransaction::new()
+            .topic_id(self.packages_topic)
+            .message(data)
+            .execute(&self.hedera_client)
+            .await
+            .unwrap();
     }
 
     /**
-     * It should attach topic to client
+     * Read from HCS
      */
-    #[test]
-    fn test_attach_topic_to_client() {
-        let topic_num_mock: i64 = 4000000;
-        let shard_num_mock: i64 = 0;
-        let real_num_mock: i64 = 0;
+    async fn read(&self, tx_data: &Sender<Result<Vec<u8>, BlockchainError>>) {
+        let stream_res = self
+            .new_topic_subscription(self.packages_topic, self.last_sync)
+            .await;
 
-        let expected_topic = TopicId {
-            topic_num: topic_num_mock,
-            shard_num: shard_num_mock,
-            realm_num: real_num_mock,
+        let mut stream = match stream_res {
+            Ok(stream) => stream,
+            Err(e) => {
+                tx_data.send(Err(e)).await.unwrap();
+                return ();
+            }
         };
 
-        let net_address_mock = "https://foobar.com:443";
-        let mut client = HederaBlockchainClient::from(net_address_mock.to_string());
+        const NEXT_MESSAGE_TIMEOUT: u64 = 1;
 
-        let client_with_topic = client.with_topic(
-            expected_topic.topic_num,
-            expected_topic.shard_num,
-            expected_topic.realm_num,
-        );
+        while let Ok(result) =
+            tokio::time::timeout(Duration::from_secs(NEXT_MESSAGE_TIMEOUT), stream.try_next()).await
+        {
+            trace!("Sending to channel...");
+            let response = result.unwrap().unwrap();
 
-        assert_eq!(client_with_topic.topic.unwrap(), expected_topic);
+            let buf: Vec<u8> = Vec::from(response.message.as_slice());
+
+            tx_data.send(Ok(buf)).await.unwrap();
+            trace!("Done sending to channel !");
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HederaBlockchain {
+    blockchain_client: Client,
+    packages_topic: TopicId,
+    last_sync: Arc<Mutex<u64>>,
+}
+
+#[async_trait::async_trait]
+impl BlockchainClient for HederaBlockchain {
+    /**
+     * Get HCS network
+     */
+    fn get_network(&self) -> String {
+        let networks = self.blockchain_client.mirror_network();
+
+        let network = String::from(networks.first().unwrap());
+
+        network
     }
 
     /**
-     * It should get network address
+     * Get blockchain label
      */
-    #[test]
-    fn test_get_network_address() {
-        let expected_net_address = "https://foobar.com:443";
-        let client = HederaBlockchainClient::from(expected_net_address.to_string());
+    fn get_label(&self) -> String {
+        String::from("hedera")
+    }
 
-        assert_eq!(client.get_net(), expected_net_address);
+    /**
+     * Create HCS IO
+     */
+    async fn create_io(&self) -> Box<dyn BlockchainIO> {
+        // Hedera IO is short lived so it's fine to deref
+        let last_sync = *self.last_sync.lock().await;
+        let hedera_io = HederaBlockchainIO {
+            network: self.get_network(),
+            last_sync,
+            packages_topic: self.packages_topic,
+            hedera_client: self.blockchain_client.clone(),
+        };
+
+        Box::new(hedera_io)
+    }
+
+    /**
+     * Get last sync
+     */
+    async fn get_last_sync(&self) -> u64 {
+        let last_sync = self.last_sync.lock().await;
+        *last_sync
+    }
+
+    /**
+     * Set last sync
+     */
+    async fn set_last_sync(&self, last_sync: u64) {
+        let mut last_sync_lock = self.last_sync.lock().await;
+
+        *last_sync_lock = last_sync;
+    }
+}
+
+impl From<&str> for HederaBlockchain {
+    /**
+     * Build from HCS topic ID
+     */
+    fn from(package_topic_id: &str) -> Self {
+        debug!("Creating Hedera Blockchain Client using default parameters...");
+
+        let blockchain_client = Client::for_testnet();
+
+        // TODO : temporary, use config manager
+        let debug_account = env::var("BPM_ACCOUNT").unwrap_or(String::from(""));
+        let debug_key = env::var("BPM_KEY").unwrap_or(String::from(""));
+
+        if debug_account != "" && debug_key != "" {
+            let account_id = AccountId::from_str(debug_account.as_str()).unwrap();
+            let private_key = PrivateKey::from_str(debug_key.as_str()).unwrap();
+            blockchain_client.set_operator(account_id, private_key);
+        }
+
+        let topic = TopicId::from_str(&package_topic_id).unwrap();
+
+        let client = Self {
+            blockchain_client,
+            packages_topic: topic,
+            last_sync: Arc::new(Mutex::new(0)),
+        };
+
+        let net_addr = client
+            .blockchain_client
+            .mirror_network()
+            .first()
+            .unwrap()
+            .to_string();
+
+        debug!(
+            "Done creating Hedera Blockchain Client using network address : {} !",
+            net_addr
+        );
+
+        client
     }
 }

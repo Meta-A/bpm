@@ -1,4 +1,4 @@
-# Compilation
+# Compiling
 
 ```sh
 cargo build --release

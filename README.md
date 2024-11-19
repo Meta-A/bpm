@@ -6,6 +6,10 @@ BPM is a cross-platform software that allows for verifiable, proven and secure p
 
 ![image](https://github.com/user-attachments/assets/c86a2e79-8384-4eb9-8513-d1b2f16a43ef)
 
+# Notice
+
+This project is still WIP, we are currently at an early stage where we are figuring out how to architecture and build BPM. If you would like to join us do not mind reaching out to us :)
+
 # Current properties & features
 * Rust language
 * Hashing of source code & binaries
