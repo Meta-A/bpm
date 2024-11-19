@@ -1,9 +1,13 @@
 use thiserror::Error;
 
+/**
+ * Package manager errors
+ */
 #[derive(Error, Debug)]
 pub enum PackageManagerError {
     #[error("Package manager could not download package")]
     DownloadError,
+
     #[error("Package manager could not install package: {0}")]
     InstallationError(String),
 

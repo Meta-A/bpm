@@ -164,49 +164,49 @@ impl PackageBuilder {
     /**
      * Set package name
      */
-    pub fn set_name(&mut self, name: String) -> &mut Self {
-        self.name = Some(name);
+    pub fn set_name(&mut self, name: &String) -> &mut Self {
+        self.name = Some(name.clone());
         self
     }
 
     /**
      * Set package version
      */
-    pub fn set_version(&mut self, version: String) -> &mut Self {
-        self.version = Some(version);
+    pub fn set_version(&mut self, version: &String) -> &mut Self {
+        self.version = Some(version.clone());
         self
     }
 
     /**
      * Set package status
      */
-    pub fn set_status(&mut self, status: PackageStatus) -> &mut Self {
-        self.status = Some(status);
+    pub fn set_status(&mut self, status: &PackageStatus) -> &mut Self {
+        self.status = Some(status.clone());
         self
     }
 
     /**
      * Set package maitainer
      */
-    pub fn set_maintainer(&mut self, maintainer: VerifyingKey) -> &mut Self {
-        self.maintainer = Some(maintainer);
+    pub fn set_maintainer(&mut self, maintainer: &VerifyingKey) -> &mut Self {
+        self.maintainer = Some(maintainer.clone());
         self
     }
 
     /**
      * Set archive url
      */
-    pub fn set_archive_url(&mut self, archive_url: Url) -> &mut Self {
-        self.archive_url = Some(archive_url);
+    pub fn set_archive_url(&mut self, archive_url: &Url) -> &mut Self {
+        self.archive_url = Some(archive_url.clone());
         self
     }
 
     /**
      * Set package integrity data
      */
-    pub fn set_integrity(&mut self, integrity_alg: String, archive_hash: &[u8]) -> &mut Self {
+    pub fn set_integrity(&mut self, integrity_alg: &String, archive_hash: &[u8]) -> &mut Self {
         let integrity = PackageIntegrity {
-            algorithm: integrity_alg,
+            algorithm: integrity_alg.clone(),
             archive_hash: Vec::from(archive_hash),
         };
 
@@ -218,8 +218,8 @@ impl PackageBuilder {
     /**
      * Set package signature
      */
-    pub fn set_signature(&mut self, sig: Signature) -> &mut Self {
-        self.sig = Some(sig);
+    pub fn set_signature(&mut self, sig: &Signature) -> &mut Self {
+        self.sig = Some(sig.clone());
         self
     }
 
@@ -256,76 +256,203 @@ impl PackageBuilder {
 #[cfg(test)]
 mod tests {
 
-    use crate::packages::{package::Package, package_builder::PackageBuilder};
+    use ed25519::signature::{rand_core::OsRng, SignerMut};
+    use ed25519_dalek::SigningKey;
+    use sha2::{Digest, Sha256};
 
-    // * It should reset package
-    //#[test]
-    //fn test_reset_package() {
-    //    let expected_name_is_none = true;
-    //    let expected_version_is_none = true;
-    //
-    //    let name_mock = "neofetch";
-    //    let version_mock = "7.1.0-2";
-    //
-    //    let archive_hash_mock = hex::encode("foobar");
-    //
-    //    let integrity_mock = PackageIntegrity {
-    //        algorithm: "SHA256".to_string(),
-    //        archive_hash: archive_hash_mock,
-    //    };
-    //
-    //    let mut builder = PackageBuilder::new();
-    //
-    //    let package = builder
-    //        .set_name(name_mock.to_string())
-    //        .set_version(version_mock.to_string())
-    //        .set_integrity(
-    //            integrity_mock.algorithm,
-    //            integrity_mock.archive_hash,
-    //        )
-    //        .reset();
-    //
-    //    assert_eq!(
-    //        package.name.is_none(),
-    //        expected_name_is_none
-    //    );
-    //
-    //    assert_eq!(
-    //        package.version.is_none(),
-    //        expected_version_is_none
-    //    );
-    //}
-    // * It should build package
-    //#[test]
-    //fn test_build_package() {
-    //    let name_mock = "neofetch";
-    //    let version_mock = "7.1.0-2";
-    //
-    //    let archive_hash_mock = hex::encode("foobar");
-    //
-    //    let integrity_mock = PackageIntegrity {
-    //        algorithm: "SHA256".to_string(),
-    //        archive_hash: archive_hash_mock,
-    //    };
-    //
-    //    let expected_package = Package {
-    //        name: name_mock.to_string(),
-    //        version: version_mock.to_string(),
-    //        integrity: integrity_mock.clone(),
-    //    };
-    //
-    //    let mut builder = PackageBuilder::new();
-    //
-    //    let package = builder
-    //        .set_name(name_mock.to_string())
-    //        .set_version(version_mock.to_string())
-    //        .set_integrity(
-    //            integrity_mock.algorithm,
-    //            integrity_mock.archive_hash,
-    //        )
-    //        .build();
-    //
-    //    assert_eq!(package.name, expected_package.name);
-    //    assert_eq!(package.version, expected_package.version);
-    //}
+    use super::*;
+
+    #[test]
+    fn test_package_build() -> Result<(), Box<dyn std::error::Error>> {
+        let mut builder = PackageBuilder::new();
+
+        let expected_name = "foo".to_string();
+        let expected_version = "1.2.3".to_string();
+        let expected_status = PackageStatus::Fine;
+
+        let mut csprng = OsRng;
+        let mut key = SigningKey::generate(&mut csprng);
+
+        let expected_maintainer = key.verifying_key();
+
+        let expected_archive_url = Url::parse(
+            "https://archive.archlinux.org/packages/f/foo/foo-1.2.3-1-x86_64.pkg.tar.zst",
+        )?;
+
+        // Pkg integrity
+        let expected_integrity_algorithm = "SHA256";
+
+        let mut package_archive_hasher = Sha256::new();
+        package_archive_hasher.update("foo");
+        let expected_archive_hash = package_archive_hasher.finalize().to_vec();
+
+        // Pkg sig
+        let package_info_hash_data = format!(
+            "{expected_name}{expected_version}{}{}{expected_archive_url}{}{}",
+            expected_status,
+            hex::encode(expected_maintainer),
+            expected_integrity_algorithm,
+            hex::encode(expected_archive_hash.clone())
+        );
+
+        let mut package_sig_hasher = Sha256::new();
+
+        package_sig_hasher.update(package_info_hash_data);
+
+        let package_data_hash = package_sig_hasher.finalize();
+
+        let expected_sig = key.sign(&package_data_hash);
+
+        let package = builder
+            .set_name(&expected_name)
+            .set_version(&expected_version)
+            .set_status(&expected_status)
+            .set_maintainer(&expected_maintainer)
+            .set_archive_url(&expected_archive_url)
+            .set_integrity(
+                &expected_integrity_algorithm.to_string(),
+                &expected_archive_hash,
+            )
+            .set_signature(&expected_sig)
+            .build();
+
+        assert_eq!(package.name, expected_name);
+        assert_eq!(package.version, expected_version);
+        assert_eq!(package.status, expected_status);
+        assert_eq!(package.maintainer, expected_maintainer);
+        assert_eq!(package.archive_url, expected_archive_url);
+        assert_eq!(package.sig.unwrap(), expected_sig);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_package_build_from_package() -> Result<(), Box<dyn std::error::Error>> {
+        let mut builder = PackageBuilder::new();
+
+        let expected_name = "foo".to_string();
+        let expected_version = "1.2.3".to_string();
+        let expected_status = PackageStatus::Fine;
+
+        let mut csprng = OsRng;
+        let mut key = SigningKey::generate(&mut csprng);
+
+        let expected_maintainer = key.verifying_key();
+
+        let expected_archive_url = Url::parse(
+            "https://archive.archlinux.org/packages/f/foo/foo-1.2.3-1-x86_64.pkg.tar.zst",
+        )?;
+
+        // Pkg integrity
+        let expected_integrity_algorithm = "SHA256";
+
+        let mut package_archive_hasher = Sha256::new();
+        package_archive_hasher.update("foo");
+        let expected_archive_hash = package_archive_hasher.finalize().to_vec();
+
+        // Pkg sig
+        let package_info_hash_data = format!(
+            "{expected_name}{expected_version}{}{}{expected_archive_url}{}{}",
+            expected_status,
+            hex::encode(expected_maintainer),
+            expected_integrity_algorithm,
+            hex::encode(expected_archive_hash.clone())
+        );
+
+        let mut package_sig_hasher = Sha256::new();
+
+        package_sig_hasher.update(package_info_hash_data);
+
+        let package_data_hash = package_sig_hasher.finalize();
+
+        let expected_sig = key.sign(&package_data_hash);
+
+        let package = builder
+            .set_name(&expected_name)
+            .set_version(&expected_version)
+            .set_status(&expected_status)
+            .set_maintainer(&expected_maintainer)
+            .set_archive_url(&expected_archive_url)
+            .set_integrity(
+                &expected_integrity_algorithm.to_string(),
+                &expected_archive_hash,
+            )
+            .set_signature(&expected_sig)
+            .build();
+
+        let copied_package = PackageBuilder::from_package(&package).build();
+
+        assert_eq!(copied_package.name, package.name);
+        assert_eq!(copied_package.version, package.version);
+        assert_eq!(copied_package.status, package.status);
+        assert_eq!(copied_package.maintainer, package.maintainer);
+        assert_eq!(copied_package.archive_url, package.archive_url);
+        assert_eq!(copied_package.sig.unwrap(), package.sig.unwrap());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_package_reset() -> Result<(), Box<dyn std::error::Error>> {
+        let mut builder = PackageBuilder::new();
+
+        let expected_name = "foo".to_string();
+        let expected_version = "1.2.3".to_string();
+        let expected_status = PackageStatus::Fine;
+
+        let mut csprng = OsRng;
+        let mut key = SigningKey::generate(&mut csprng);
+
+        let expected_maintainer = key.verifying_key();
+
+        let expected_archive_url = Url::parse(
+            "https://archive.archlinux.org/packages/f/foo/foo-1.2.3-1-x86_64.pkg.tar.zst",
+        )?;
+
+        // Pkg integrity
+        let expected_integrity_algorithm = "SHA256";
+
+        let mut package_archive_hasher = Sha256::new();
+        package_archive_hasher.update("foo");
+        let expected_archive_hash = package_archive_hasher.finalize().to_vec();
+
+        // Pkg sig
+        let package_info_hash_data = format!(
+            "{expected_name}{expected_version}{}{}{expected_archive_url}{}{}",
+            expected_status,
+            hex::encode(expected_maintainer),
+            expected_integrity_algorithm,
+            hex::encode(expected_archive_hash.clone())
+        );
+
+        let mut package_sig_hasher = Sha256::new();
+
+        package_sig_hasher.update(package_info_hash_data);
+
+        let package_data_hash = package_sig_hasher.finalize();
+
+        let expected_sig = key.sign(&package_data_hash);
+
+        let package = builder
+            .set_name(&expected_name)
+            .set_version(&expected_version)
+            .set_status(&expected_status)
+            .set_maintainer(&expected_maintainer)
+            .set_archive_url(&expected_archive_url)
+            .set_integrity(
+                &expected_integrity_algorithm.to_string(),
+                &expected_archive_hash,
+            )
+            .set_signature(&expected_sig)
+            .build();
+
+        assert_eq!(builder.name, None);
+        assert_eq!(builder.version, None);
+        assert_eq!(builder.status, None);
+        assert_eq!(builder.maintainer, None);
+        assert_eq!(builder.archive_url, None);
+        assert_eq!(builder.sig, None);
+
+        Ok(())
+    }
 }

@@ -39,6 +39,3 @@ tonic-build = "0.12"
 [profile.release]
 lto = true
 
-[dev-dependencies]
-mockito = "1.5.0"
-

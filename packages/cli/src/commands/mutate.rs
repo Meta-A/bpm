@@ -91,7 +91,7 @@ impl MutateCommand {
             .expect("Could not parse package status from string");
 
         let updated_package = PackageBuilder::from_package(&selected_package)
-            .set_status(selected_status)
+            .set_status(&selected_status)
             .build();
 
         // Sign package
@@ -104,7 +104,7 @@ impl MutateCommand {
         let package_sig = sign_package(&updated_package, &mut signing_key);
 
         let signed_updated_package = PackageBuilder::from_package(&updated_package)
-            .set_signature(package_sig)
+            .set_signature(&package_sig)
             .build();
 
         info!("Done signing package mutations !");

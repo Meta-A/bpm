@@ -68,6 +68,24 @@ impl PackageIntegrityBuilder {
     }
 
     /**
+     * Set algorithm
+     */
+    pub fn set_algorithm(&mut self, algorithm: &String) -> &mut Self {
+        self.algorithm = Some(algorithm.clone());
+
+        self
+    }
+
+    /**
+     * Set archive hash
+     */
+    pub fn set_archive_hash(&mut self, archive_hash: &Vec<u8>) -> &mut Self {
+        self.archive_hash = Some(archive_hash.clone());
+
+        self
+    }
+
+    /**
      * Build package integrity
      */
     pub fn build(&mut self) -> PackageIntegrity {
@@ -85,5 +103,68 @@ impl PackageIntegrityBuilder {
         self.reset();
 
         package_integrity
+    }
+}
+
+mod tests {
+    use sha2::{Digest, Sha256};
+
+    use super::PackageIntegrityBuilder;
+
+    use super::*;
+
+    #[test]
+    fn test_package_integrity_build() {
+        let expected_algorithm = "SHA256".to_string();
+
+        let mut package_archive_hasher = Sha256::new();
+        package_archive_hasher.update("foo");
+        let expected_archive_hash = package_archive_hasher.finalize().to_vec();
+
+        let package_integrity = PackageIntegrityBuilder::new()
+            .set_algorithm(&expected_algorithm)
+            .set_archive_hash(&expected_archive_hash)
+            .build();
+
+        assert_eq!(package_integrity.algorithm, expected_algorithm);
+        assert_eq!(package_integrity.archive_hash, expected_archive_hash);
+    }
+
+    #[test]
+    fn test_package_integrity_reset() {
+        let expected_algorithm = "SHA256".to_string();
+
+        let mut builder = PackageIntegrityBuilder::new();
+        let package_integrity = builder.set_algorithm(&expected_algorithm).reset();
+
+        assert_eq!(package_integrity.algorithm, None);
+    }
+
+    #[test]
+    fn test_package_integrity_build_from_package_integrity() {
+        let expected_algorithm = "SHA256".to_string();
+
+        let mut package_archive_hasher = Sha256::new();
+        package_archive_hasher.update("foo");
+        let expected_archive_hash = package_archive_hasher.finalize().to_vec();
+
+        let package_integrity = PackageIntegrityBuilder::new()
+            .set_algorithm(&expected_algorithm)
+            .set_archive_hash(&expected_archive_hash)
+            .build();
+
+        assert_eq!(package_integrity.algorithm, expected_algorithm);
+        assert_eq!(package_integrity.archive_hash, expected_archive_hash);
+
+        let copied_package_integrity =
+            PackageIntegrityBuilder::from_package_integrity(&package_integrity).build();
+        assert_eq!(
+            copied_package_integrity.algorithm,
+            package_integrity.algorithm
+        );
+        assert_eq!(
+            copied_package_integrity.archive_hash,
+            package_integrity.archive_hash
+        );
     }
 }

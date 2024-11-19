@@ -29,3 +29,7 @@ strip = true
 lto = true
 codegen-units = 1
 panic = "abort"
+
+[[bin]]
+name = "bpm"
+path = "src/main.rs"

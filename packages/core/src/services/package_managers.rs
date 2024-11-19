@@ -10,6 +10,9 @@ use crate::package_managers::{
     pacman::pacman_package_manager::PacmanPackageManager, traits::package_manager::PackageManager,
 };
 
+/**
+ * Package managers service
+ */
 pub struct PackageManagersService {
     available_package_managers: Arc<Mutex<Vec<Arc<Box<dyn PackageManager>>>>>,
     selected_package_manager: Arc<Mutex<Option<usize>>>,

@@ -1,3 +1,5 @@
+use prost::Message;
+
 use crate::packages::package_integrity::PackageIntegrity;
 
 use super::package_integrity_document::PackageIntegrityDocument;
@@ -18,6 +20,24 @@ impl PackageIntegrityDocumentBuilder {
         };
 
         instance
+    }
+
+    /**
+     * Set algorithm
+     */
+    pub fn set_algorithm(&mut self, algorithm: &String) -> &mut Self {
+        self.algorithm = Some(algorithm.clone());
+
+        self
+    }
+
+    /**
+     * Set archive hash
+     */
+    pub fn set_archive_hash(&mut self, archive_hash: &Vec<u8>) -> &mut Self {
+        self.archive_hash = Some(archive_hash.clone());
+
+        self
     }
 
     /**
@@ -63,5 +83,76 @@ impl Default for PackageIntegrityDocumentBuilder {
         };
 
         instance
+    }
+}
+
+mod tests {
+
+    use sha2::{Digest, Sha256};
+
+    use crate::packages::package_integrity;
+
+    use super::*;
+
+    #[test]
+    fn test_package_integrity_build() {
+        let mut builder = PackageIntegrityDocumentBuilder::default();
+
+        let mut hasher = Sha256::new();
+
+        hasher.update("foo");
+
+        let expected_algorithm = "SHA256";
+        let expected_archive_hash = hasher.finalize().to_vec();
+
+        let doc = builder
+            .set_algorithm(&expected_algorithm.to_string())
+            .set_archive_hash(&expected_archive_hash)
+            .build();
+
+        assert_eq!(doc.algorithm, expected_algorithm);
+        assert_eq!(doc.archive_hash, hex::encode(&expected_archive_hash));
+    }
+
+    #[test]
+    fn test_package_integrity_reset() {
+        let mut builder = PackageIntegrityDocumentBuilder::default();
+
+        let mut hasher = Sha256::new();
+
+        hasher.update("foo");
+
+        let expected_algorithm = "SHA256";
+        let expected_archive_hash = hasher.finalize().to_vec();
+
+        let doc = builder
+            .set_algorithm(&expected_algorithm.to_string())
+            .set_archive_hash(&expected_archive_hash)
+            .reset();
+
+        assert_eq!(doc.algorithm, None);
+        assert_eq!(doc.archive_hash, None);
+    }
+
+    #[test]
+    fn test_package_integrity_build_from_package_integrity() {
+        let mut hasher = Sha256::new();
+
+        hasher.update("foo");
+
+        let expected_algorithm = "SHA256";
+        let expected_archive_hash = hasher.finalize().to_vec();
+
+        let package_integrity: PackageIntegrity = PackageIntegrity {
+            algorithm: expected_algorithm.to_string(),
+            archive_hash: expected_archive_hash.clone(),
+        };
+
+        let mut builder =
+            PackageIntegrityDocumentBuilder::from_package_integrity(&package_integrity);
+
+        let doc = builder.build();
+        assert_eq!(doc.algorithm, expected_algorithm);
+        assert_eq!(doc.archive_hash, hex::encode(&expected_archive_hash));
     }
 }

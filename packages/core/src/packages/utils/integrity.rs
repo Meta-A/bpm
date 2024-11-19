@@ -1,5 +1,6 @@
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
+
 /**
  * Compute hash for single file
  */
@@ -24,30 +25,33 @@ pub async fn compute_package_file_hash(
 
 #[cfg(test)]
 mod tests {
+
     use std::{fs::File, io::Write};
 
     use tempfile::TempDir;
 
     use super::*;
 
-    // It should compute hash
-    //#[tokio::test]
-    //async fn test_compute_file_hash() {
-    //    let test_dir = TempDir::new().unwrap();
-    //
-    //    let file_path = test_dir.path().join("file_to_hash");
-    //    let mut file = File::create(&file_path).unwrap();
-    //
-    //    let content = "Hello, world";
-    //
-    //    // Write the string to the file
-    //    file.write_all(content.as_bytes()).unwrap();
-    //
-    //    let mut hasher = Sha256::new();
-    //    hasher.update(content.as_bytes());
-    //    let expected_hash = hex::encode(hasher.finalize());
-    //
-    //    let hash = compute_package_file_hash(&file_path).await.unwrap();
-    //    assert_eq!(expected_hash, hash);
-    //}
+    #[tokio::test]
+    async fn test_compute_package_file_hash() -> Result<(), Box<dyn std::error::Error>> {
+        let test_dir = TempDir::new().unwrap();
+
+        let test_file_path = test_dir.path().join("test.txt");
+
+        let hashed_content = "foo";
+
+        let mut file = File::create_new(&test_file_path).unwrap();
+
+        let mut hasher = Sha256::new();
+        hasher.update(hashed_content);
+        let expected_hash = hasher.finalize().to_vec();
+
+        file.write(hashed_content.as_bytes())?;
+
+        let (hash, _) = compute_package_file_hash(&test_file_path).await?;
+
+        assert_eq!(hash, expected_hash);
+
+        Ok(())
+    }
 }

@@ -16,7 +16,6 @@ pub const DEFAULT_PACKAGE_STATUS: PackageStatus = PackageStatus::Fine;
 /**
  * Package status
  */
-
 #[derive(EnumIter, EnumString, PartialEq, Eq, PartialOrd, Display, Debug, Clone)]
 #[repr(u8)]
 pub enum PackageStatus {
@@ -440,31 +439,10 @@ impl fmt::Display for Package {
         )?;
 
         Ok(())
-        //Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    //It should display package
-    //#[test]
-    //fn test_display_package() {
-    //    let package_integrity_mock = PackageIntegrity {
-    //        algorithm: "SHA256".to_string(),
-    //        archive_hash: hex::encode(),
-    //    };
-    //
-    //    let package = Package {
-    //        name: "foo".to_string(),
-    //        version: "1.2.3".to_string(),
-    //        integrity: package_integrity_mock,
-    //    };
-    //
-    //    let package_buf = String::from(format!("{package}"));
-    //
-    //    assert_eq!(package_buf.contains(&package.name), true);
-    //    assert_eq!(package_buf.contains(&package.version), true);
-    //}
 }

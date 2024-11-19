@@ -1,5 +1,6 @@
 use super::blockchain_document::BlockchainDocument;
 
+#[derive(Debug)]
 pub struct BlockchainDocumentBuilder {
     label: Option<String>,
     last_synchronization: Option<String>,
@@ -72,5 +73,60 @@ impl Default for BlockchainDocumentBuilder {
         };
 
         instance
+    }
+}
+
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn test_blockchain_build() {
+        let mut builder = BlockchainDocumentBuilder::default();
+
+        let expected_label = "hedera";
+        let expected_last_synchronization = "1704067200";
+
+        let doc = builder
+            .set_label(expected_label.to_string())
+            .set_last_synchronization(expected_last_synchronization.to_string())
+            .build();
+
+        assert_eq!(doc.label, expected_label);
+        assert_eq!(doc.last_synchronization, expected_last_synchronization);
+    }
+
+    #[test]
+    fn test_blockchain_reset() {
+        let mut builder = BlockchainDocumentBuilder::default();
+
+        let expected_label = "hedera";
+        let expected_last_synchronization = "1704067200";
+
+        let doc = builder
+            .set_label(expected_label.to_string())
+            .set_last_synchronization(expected_last_synchronization.to_string())
+            .reset();
+
+        assert_eq!(doc.label, None);
+        assert_eq!(doc.last_synchronization, None);
+    }
+
+    #[test]
+    fn test_blockchain_build_from_document() {
+        let mut builder = BlockchainDocumentBuilder::default();
+
+        let label_mock = "hedera";
+        let last_sync_mock = "1704067200";
+
+        let doc = builder
+            .set_label(label_mock.to_string())
+            .set_last_synchronization(last_sync_mock.to_string())
+            .build();
+
+        let new_doc = BlockchainDocumentBuilder::from_document(&doc).build();
+
+        assert_eq!(new_doc.label, doc.label);
+        assert_eq!(new_doc.last_synchronization, doc.last_synchronization);
     }
 }

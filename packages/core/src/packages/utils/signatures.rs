@@ -4,6 +4,9 @@ use log::debug;
 
 use crate::packages::package::Package;
 
+/**
+ * Sign given package
+ */
 pub fn sign_package(package: &Package, signing_key: &mut SigningKey) -> Signature {
     let data_integrity_bytes = package.compute_data_integrity();
 
@@ -12,6 +15,9 @@ pub fn sign_package(package: &Package, signing_key: &mut SigningKey) -> Signatur
     sig
 }
 
+/**
+ * Verify given package
+ */
 pub fn verify_package(untrusted_package: &Package) -> Option<&Package> {
     debug!("Verifying {} package signature...", untrusted_package.name);
     let sig = untrusted_package.sig.unwrap();

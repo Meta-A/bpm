@@ -1,5 +1,8 @@
 use polodb_core::bson::{Bson, Document};
 
+/**
+ * Represent how package integrity is stored in DB
+ */
 #[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
 pub struct PackageIntegrityDocument {
     pub algorithm: String,

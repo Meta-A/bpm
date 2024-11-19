@@ -33,6 +33,9 @@ enum BbpmCLIOptions {
 }
 
 impl BbpmCLIOptions {
+    /**
+     * Prompt which blockchain to use
+     */
     async fn blockchain_prompt(
         &self,
         config_manager: &mut ConfigManager,
@@ -51,6 +54,9 @@ impl BbpmCLIOptions {
         blockchains_service.set_client(selection).await;
     }
 
+    /**
+     * Code ran when CLI bootstraped
+     */
     pub async fn run(
         &self,
         config_manager: &mut ConfigManager,

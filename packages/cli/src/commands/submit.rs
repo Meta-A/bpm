@@ -53,6 +53,9 @@ pub struct SubmitCommand {
  * Handle package submission request from CLI
  */
 impl SubmitCommand {
+    /**
+     * Pretty print given package to better understand what will be published
+     */
     fn pretty_print(&self, package: &Package, buf: &mut String) -> std::fmt::Result {
         let maintainer = hex::encode_upper(package.maintainer.to_bytes());
 
@@ -98,7 +101,9 @@ impl SubmitCommand {
 
         let package_name = self.package_name.as_ref().unwrap();
         let package_version = self.package_version.as_ref().unwrap();
+
         //let sources_directory = self.package_sources_directory.as_ref().unwrap();
+
         let package_archive_directory =
             PathBuf::from(self.package_archive_directory.as_ref().unwrap());
 
@@ -122,12 +127,12 @@ impl SubmitCommand {
 
         // Build base package
         let package = builder
-            .set_name(package_name.to_string())
-            .set_version(package_version.to_string())
-            .set_status(DEFAULT_PACKAGE_STATUS)
-            .set_maintainer(verifying_key)
-            .set_archive_url(archive_url)
-            .set_integrity(integrity_algorithm, &package_archive_hash)
+            .set_name(&package_name.to_string())
+            .set_version(&package_version.to_string())
+            .set_status(&DEFAULT_PACKAGE_STATUS)
+            .set_maintainer(&verifying_key)
+            .set_archive_url(&archive_url)
+            .set_integrity(&integrity_algorithm, &package_archive_hash)
             .build();
 
         // Sign package
@@ -137,7 +142,7 @@ impl SubmitCommand {
         let package_sig = sign_package(&package, &mut signing_key);
 
         let signed_package = PackageBuilder::from_package(&package)
-            .set_signature(package_sig)
+            .set_signature(&package_sig)
             .build();
 
         // Pretty print

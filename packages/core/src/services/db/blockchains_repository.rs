@@ -71,6 +71,7 @@ impl Repository<BlockchainDocument, String> for BlockchainsRepository {
 
         debug!("Done updating blockchain in repo !");
     }
+
     //async fn delete(&self, key: String) -> BlockchainDocument;
 
     async fn exists_by_key(&self, key: &String) -> bool {

@@ -13,6 +13,9 @@ use crate::{
 
 use super::db::packages_repository::PackagesRepository;
 
+/**
+ * Packages service
+ */
 pub struct PackagesService {
     packages_repository: Arc<PackagesRepository>,
 }

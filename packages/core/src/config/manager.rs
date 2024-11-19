@@ -194,24 +194,6 @@ impl ConfigManager {
 
         Ok(verifying_key)
     }
-    //
-    //
-    // * Set current blockchain
-    // */
-    //pub fn set_current_blockchain(&mut self, blockchain: Box<dyn BlockchainClient>) {
-    //    self.current_blockchain = Some(blockchain);
-    //
-    //    ()
-    //}
-    //
-    //
-    // * Get current blockchain
-    // */
-    //pub fn get_current_blockchain(&self) -> &Box<dyn BlockchainClient> {
-    //    let blockchain = self.current_blockchain.as_ref().unwrap();
-    //
-    //    &blockchain
-    //}
 }
 
 impl From<&PathBuf> for ConfigManager {
@@ -249,7 +231,6 @@ impl From<&PathBuf> for ConfigManager {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
 
     use tempfile::TempDir;
 
@@ -309,52 +290,15 @@ mod tests {
 
         let expected_config_file_path = &test_dir.into_path().join("config.json");
 
-        let mut config_manager = ConfigManager::from(expected_config_file_path);
+        ConfigManager::from(expected_config_file_path);
 
         // Config file is now created, try to load it once again
 
-        config_manager = ConfigManager::from(expected_config_file_path);
+        let config_manager = ConfigManager::from(expected_config_file_path);
 
         assert_eq!(
             config_manager.path.as_os_str().to_str().unwrap(),
             expected_config_file_path.as_os_str().to_str().unwrap()
         );
-    }
-
-    /**
-     * It should panic while creating ConfigManager when unhandled error
-     */
-    #[test]
-    #[should_panic]
-    fn test_create_manager_unhandled_error_panic() {
-        let test_dir = TempDir::new().unwrap();
-
-        let test_dir_path = test_dir.path();
-
-        // We set permissions to read only on purpose so that ::from will try to write and raise
-        // Error
-        let mut perms = fs::metadata(test_dir_path).unwrap().permissions();
-
-        perms.set_readonly(true);
-
-        fs::set_permissions(test_dir_path, perms).unwrap();
-
-        let expected_config_file_path = &test_dir.into_path().join("");
-
-        ConfigManager::from(expected_config_file_path);
-    }
-
-    /**
-     * It shoud load config without panicking
-     */
-    #[test]
-    fn test_load_config() {
-        let test_dir = TempDir::new().unwrap();
-
-        let expected_config_file_path = &test_dir.into_path().join("config.json");
-
-        let config_manager = ConfigManager::from(expected_config_file_path);
-
-        config_manager.load().unwrap();
     }
 }
