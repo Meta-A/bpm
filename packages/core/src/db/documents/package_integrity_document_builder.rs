@@ -1,5 +1,3 @@
-use prost::Message;
-
 use crate::packages::package_integrity::PackageIntegrity;
 
 use super::package_integrity_document::PackageIntegrityDocument;
@@ -86,6 +84,7 @@ impl Default for PackageIntegrityDocumentBuilder {
     }
 }
 
+#[cfg(test)]
 mod tests {
 
     use sha2::{Digest, Sha256};

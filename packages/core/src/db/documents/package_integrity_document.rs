@@ -3,7 +3,7 @@ use polodb_core::bson::{Bson, Document};
 /**
  * Represent how package integrity is stored in DB
  */
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PackageIntegrityDocument {
     pub algorithm: String,
     pub archive_hash: String,

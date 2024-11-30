@@ -1,11 +1,11 @@
 use super::blockchain_document_builder::BlockchainDocumentBuilder;
 use polodb_core::bson::{Bson, Document};
 
-#[derive(serde::Serialize, serde::Deserialize, Debug)]
-
 /**
  * Represents how blockchain is stored in DB
  */
+
+#[derive(serde::Serialize, serde::Deserialize, Debug, PartialEq, Eq)]
 pub struct BlockchainDocument {
     pub label: String,
     pub last_synchronization: String,
@@ -31,6 +31,7 @@ impl Into<Bson> for &BlockchainDocument {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use super::*;
 

@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Eq)]
 pub enum BlockchainError {
     #[error("Could not configure blockchain connection properly")]
     ConnectionConfig,

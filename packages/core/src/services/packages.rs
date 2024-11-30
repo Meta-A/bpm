@@ -46,12 +46,7 @@ impl PackagesService {
     ) -> bool {
         let doc = PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
 
-        let key = self.packages_repository.get_composed_key(
-            &doc.blockchain_label,
-            &doc.name,
-            &doc.version,
-            &doc.maintainer,
-        );
+        let key = self.packages_repository.get_composite_key(&doc);
 
         let package_exists = self.packages_repository.exists_by_key(&key).await;
 
@@ -146,7 +141,11 @@ impl PackagesService {
         let package_doc =
             PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
 
-        self.packages_repository.update(&package_doc).await;
+        let package_doc_key = self.packages_repository.get_composite_key(&package_doc);
+
+        self.packages_repository
+            .update(&package_doc_key, &package_doc)
+            .await;
 
         debug!(
             "Done updating package {} from packages service !",
@@ -160,5 +159,145 @@ impl From<&Arc<PackagesRepository>> for PackagesService {
         Self {
             packages_repository: Arc::clone(value),
         }
+    }
+}
+
+#[cfg(test)]
+
+mod tests {
+    use std::sync::Arc;
+
+    use ed25519::signature::rand_core::OsRng;
+    use ed25519_dalek::SigningKey;
+
+    use crate::{
+        blockchains::blockchain::{BlockchainClient, MockBlockchainClient},
+        packages::{package_builder::PackageBuilder, utils::signatures::sign_package},
+        services::{db::packages_repository::PackagesRepository, packages::PackagesService},
+        test_utils::{
+            db::tests::create_test_db,
+            package::tests::{create_package_with_sig, create_package_without_sig},
+        },
+    };
+
+    /**
+     * It should add new package
+     */
+    #[tokio::test]
+    async fn test_should_add_package() -> Result<(), Box<dyn std::error::Error>> {
+        let db_client = create_test_db();
+
+        // Instantiate required resources
+
+        let packages_repository = Arc::new(PackagesRepository::from(&db_client));
+
+        let packages_service = Arc::new(PackagesService::from(&packages_repository));
+
+        let mut blockchain_mock = MockBlockchainClient::default();
+
+        blockchain_mock
+            .expect_get_label()
+            .returning(|| "MockBlockchain".to_string());
+
+        let blockchain_client: Box<dyn BlockchainClient> = Box::new(blockchain_mock);
+        let expected_package = create_package_with_sig()?;
+
+        packages_service
+            .add(&expected_package, &blockchain_client)
+            .await;
+
+        let db_packages = packages_service
+            .get_by_release(
+                &expected_package.name,
+                &expected_package.version,
+                &blockchain_client,
+            )
+            .await;
+        assert_eq!(expected_package, db_packages[0]);
+
+        Ok(())
+    }
+
+    /**
+     * It should get all packages
+     */
+    #[tokio::test]
+    async fn test_should_get_all_packages() -> Result<(), Box<dyn std::error::Error>> {
+        let db_client = create_test_db();
+
+        // Instantiate required resources
+
+        let packages_repository = Arc::new(PackagesRepository::from(&db_client));
+
+        let packages_service = Arc::new(PackagesService::from(&packages_repository));
+
+        let mut blockchain_mock = MockBlockchainClient::default();
+
+        blockchain_mock
+            .expect_get_label()
+            .returning(|| "MockBlockchain".to_string());
+
+        let blockchain_client: Box<dyn BlockchainClient> = Box::new(blockchain_mock);
+        let package_one = create_package_with_sig()?;
+
+        packages_service.add(&package_one, &blockchain_client).await;
+
+        let package_two = create_package_with_sig()?;
+
+        packages_service.add(&package_two, &blockchain_client).await;
+
+        let db_packages = packages_service.get_all().await;
+
+        let expected_packages_count = 2;
+        assert_eq!(db_packages.len(), expected_packages_count);
+
+        Ok(())
+    }
+
+    /**
+     * It should get by maintainer
+     */
+    #[tokio::test]
+    async fn test_should_get_package_by_maintainer() -> Result<(), Box<dyn std::error::Error>> {
+        let db_client = create_test_db();
+
+        // Instantiate required resources
+
+        let packages_repository = Arc::new(PackagesRepository::from(&db_client));
+
+        let packages_service = Arc::new(PackagesService::from(&packages_repository));
+
+        let mut blockchain_mock = MockBlockchainClient::default();
+
+        blockchain_mock
+            .expect_get_label()
+            .returning(|| "MockBlockchain".to_string());
+
+        let blockchain_client: Box<dyn BlockchainClient> = Box::new(blockchain_mock);
+
+        let mut csprng = OsRng;
+        let mut key = SigningKey::generate(&mut csprng);
+
+        let package = create_package_without_sig(&key.verifying_key())?;
+
+        let sig = sign_package(&package, &mut key);
+
+        let signed_package = PackageBuilder::from_package(&package)
+            .set_signature(&sig)
+            .build();
+
+        packages_service
+            .add(&signed_package, &blockchain_client)
+            .await;
+
+        let db_packages = packages_service
+            .get_by_maintainer(&signed_package.maintainer, &blockchain_client)
+            .await;
+
+        let expected_packages_count = 1;
+
+        assert_eq!(db_packages.len(), expected_packages_count);
+
+        Ok(())
     }
 }

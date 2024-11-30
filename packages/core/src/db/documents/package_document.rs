@@ -5,7 +5,7 @@ use super::package_integrity_document::PackageIntegrityDocument;
 /**
  * Represent how package is stored in DB
  */
-#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct PackageDocument {
     pub name: String,
     pub version: String,
@@ -42,6 +42,7 @@ impl Into<Bson> for &PackageDocument {
     }
 }
 
+#[cfg(test)]
 mod tests {
     use ed25519::signature::{rand_core::OsRng, SignerMut};
     use ed25519_dalek::{SigningKey, VerifyingKey};
@@ -49,7 +50,9 @@ mod tests {
 
     use crate::{
         db::documents::package_integrity_document_builder::PackageIntegrityDocumentBuilder,
-        packages::{package::PackageStatus, package_integrity_builder::PackageIntegrityBuilder},
+        packages::{
+            package_integrity_builder::PackageIntegrityBuilder, package_status::PackageStatus,
+        },
     };
 
     use super::*;

@@ -4,7 +4,6 @@ use crate::db::documents::package_integrity_document::PackageIntegrityDocument;
 
 use super::package_integrity::PackageIntegrity;
 
-#[derive(Default)]
 pub struct PackageIntegrityBuilder {
     algorithm: Option<String>,
     archive_hash: Option<Vec<u8>>,
@@ -19,16 +18,6 @@ impl PackageIntegrityBuilder {
         Self {
             algorithm: Some(document.algorithm.clone()),
             archive_hash: Some(decoded_archive_hash),
-        }
-    }
-
-    /**
-     * Create new package builder instance
-     */
-    pub fn new() -> Self {
-        Self {
-            algorithm: None,
-            archive_hash: None,
         }
     }
 
@@ -54,9 +43,9 @@ impl PackageIntegrityBuilder {
     }
 
     /**
-     * Parse rpl and extract package integer information
+     * Parse rlp and extract package integer information
      */
-    pub fn from_rpl(raw_package_integrity: &[u8]) -> Result<Self, DecoderError> {
+    pub fn from_rlp(raw_package_integrity: &[u8]) -> Result<Self, DecoderError> {
         let package_integrity: PackageIntegrity = rlp::decode(&raw_package_integrity)?;
 
         let instance = Self {
@@ -106,13 +95,28 @@ impl PackageIntegrityBuilder {
     }
 }
 
+impl Default for PackageIntegrityBuilder {
+    fn default() -> Self {
+        Self {
+            algorithm: None,
+            archive_hash: None,
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use sha2::{Digest, Sha256};
+
+    use crate::db::documents::package_integrity_document_builder::PackageIntegrityDocumentBuilder;
 
     use super::PackageIntegrityBuilder;
 
     use super::*;
 
+    /**
+     * It should build package integrity
+     */
     #[test]
     fn test_package_integrity_build() {
         let expected_algorithm = "SHA256".to_string();
@@ -121,7 +125,7 @@ mod tests {
         package_archive_hasher.update("foo");
         let expected_archive_hash = package_archive_hasher.finalize().to_vec();
 
-        let package_integrity = PackageIntegrityBuilder::new()
+        let package_integrity = PackageIntegrityBuilder::default()
             .set_algorithm(&expected_algorithm)
             .set_archive_hash(&expected_archive_hash)
             .build();
@@ -130,16 +134,23 @@ mod tests {
         assert_eq!(package_integrity.archive_hash, expected_archive_hash);
     }
 
+    /**
+     * It should reset builder
+     */
     #[test]
     fn test_package_integrity_reset() {
         let expected_algorithm = "SHA256".to_string();
 
-        let mut builder = PackageIntegrityBuilder::new();
+        let mut builder = PackageIntegrityBuilder::default();
         let package_integrity = builder.set_algorithm(&expected_algorithm).reset();
 
         assert_eq!(package_integrity.algorithm, None);
+        assert_eq!(package_integrity.archive_hash, None);
     }
 
+    /**
+     * It should build from other package integrity
+     */
     #[test]
     fn test_package_integrity_build_from_package_integrity() {
         let expected_algorithm = "SHA256".to_string();
@@ -148,7 +159,7 @@ mod tests {
         package_archive_hasher.update("foo");
         let expected_archive_hash = package_archive_hasher.finalize().to_vec();
 
-        let package_integrity = PackageIntegrityBuilder::new()
+        let package_integrity = PackageIntegrityBuilder::default()
             .set_algorithm(&expected_algorithm)
             .set_archive_hash(&expected_archive_hash)
             .build();
@@ -166,5 +177,62 @@ mod tests {
             copied_package_integrity.archive_hash,
             package_integrity.archive_hash
         );
+    }
+
+    /**
+     * It should build package integrity from document
+     */
+    #[test]
+    fn test_package_integrity_build_from_package_integrity_doc() {
+        let mut hasher = Sha256::new();
+
+        hasher.update("foo");
+
+        let expected_algorithm = "SHA256";
+        let expected_archive_hash = hasher.finalize().to_vec();
+
+        let mut doc_builder = PackageIntegrityDocumentBuilder::default();
+        let doc = doc_builder
+            .set_algorithm(&expected_algorithm.to_string())
+            .set_archive_hash(&expected_archive_hash)
+            .build();
+
+        let package_integrity = PackageIntegrityBuilder::from_document(&doc).build();
+
+        assert_eq!(doc.algorithm, package_integrity.algorithm);
+        assert_eq!(
+            doc.archive_hash,
+            hex::encode(package_integrity.archive_hash)
+        );
+    }
+
+    #[test]
+    fn test_package_integrity_build_from_rlp() -> Result<(), Box<dyn std::error::Error>> {
+        let expected_algorithm = "SHA256".to_string();
+
+        let mut package_archive_hasher = Sha256::new();
+        package_archive_hasher.update("foo");
+        let expected_archive_hash = package_archive_hasher.finalize().to_vec();
+
+        let package_integrity = PackageIntegrityBuilder::default()
+            .set_algorithm(&expected_algorithm)
+            .set_archive_hash(&expected_archive_hash)
+            .build();
+
+        let encoded_package_integrity = rlp::encode(&package_integrity);
+
+        let decoded_package_integrity =
+            PackageIntegrityBuilder::from_rlp(&encoded_package_integrity)?.build();
+
+        assert_eq!(
+            decoded_package_integrity.algorithm,
+            package_integrity.algorithm
+        );
+        assert_eq!(
+            decoded_package_integrity.archive_hash,
+            package_integrity.archive_hash
+        );
+
+        Ok(())
     }
 }

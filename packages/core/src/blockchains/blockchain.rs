@@ -3,11 +3,14 @@ use rlp::DecoderError;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc::{self, Sender};
 
+use super::errors::blockchain_error::BlockchainError;
 use crate::packages::{
     package::Package, package_builder::PackageBuilder, utils::signatures::verify_package,
 };
+use std::fmt::Debug;
 
-use super::errors::blockchain_error::BlockchainError;
+#[cfg(test)]
+use mockall::automock;
 
 #[async_trait::async_trait]
 pub trait BlockchainIO: Send {
@@ -16,7 +19,8 @@ pub trait BlockchainIO: Send {
 }
 
 #[async_trait::async_trait]
-pub trait BlockchainClient: Sync + Send {
+#[cfg_attr(test, automock)]
+pub trait BlockchainClient: Sync + Send + Debug {
     /**
      * Write package
      */
@@ -48,7 +52,7 @@ pub trait BlockchainClient: Sync + Send {
         while let Some(raw_bytes_res) = rx_raw_bytes.recv().await {
             let raw_bytes = raw_bytes_res?;
             let package_parsing_result: Result<PackageBuilder, DecoderError> =
-                PackageBuilder::from_rpl(raw_bytes.as_slice());
+                PackageBuilder::from_rlp(raw_bytes.as_slice());
 
             let mut builder = match package_parsing_result {
                 Ok(builder) => builder,

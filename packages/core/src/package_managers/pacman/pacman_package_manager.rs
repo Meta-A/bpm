@@ -143,6 +143,12 @@ impl PackageManager for PacmanPackageManager {
     }
 }
 
+impl Default for PacmanPackageManager {
+    fn default() -> Self {
+        Self {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
