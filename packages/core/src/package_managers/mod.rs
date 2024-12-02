@@ -12,8 +12,32 @@ pub mod pacman;
 pub mod traits;
 
 /**
+ * Check if package manager exists
+ */
+
+#[cfg(not(tarpaulin_include))] // TODO : Figure out way to test on multiple envs
+fn check_package_manager_exists(command_name: &str) -> bool {
+    // Check if package manager installed
+    let command_spawn = Command::new(command_name)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+
+    match command_spawn {
+        Ok(_) => {
+            return true;
+        }
+        Err(_) => {
+            return false;
+        }
+    }
+}
+
+/**
  * Probe and init package managers
  */
+
+#[cfg(not(tarpaulin_include))] // TODO : Figure out way to test on multiple envs
 pub async fn init_package_managers() -> Vec<Arc<Box<dyn PackageManager>>> {
     debug!("Probing installed package managers...");
 
@@ -22,21 +46,11 @@ pub async fn init_package_managers() -> Vec<Arc<Box<dyn PackageManager>>> {
     let mut package_managers: Vec<Arc<Box<dyn PackageManager>>> = vec![];
 
     for package_manager_cmd in supported_package_managers {
-        // Check if package manager installed
-        let command_spawn = Command::new(package_manager_cmd)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+        let package_manager_exists = check_package_manager_exists(package_manager_cmd);
 
-        match command_spawn {
-            Ok(_) => (),
-            Err(_) => {
-                debug!(
-                    "Package manager {package_manager_cmd} was not found on system, skipping..."
-                );
-
-                continue;
-            }
+        if !package_manager_exists {
+            debug!("Package manager {package_manager_cmd} was not found on system, skipping...");
+            continue;
         }
 
         // If so, build struct then cast to PackageManager trait

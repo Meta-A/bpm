@@ -58,8 +58,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let package_managers_service =
         Arc::new(PackageManagersService::new(&available_package_managers));
 
-    package_managers_service.init_package_managers().await;
-
     let packages_service = Arc::new(PackagesService::from(&packages_repository));
 
     let blockchains_service = Arc::new(

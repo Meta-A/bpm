@@ -172,7 +172,10 @@ mod tests {
 
     use crate::{
         blockchains::blockchain::{BlockchainClient, MockBlockchainClient},
-        packages::{package_builder::PackageBuilder, utils::signatures::sign_package},
+        packages::{
+            package_builder::PackageBuilder, package_status::PackageStatus,
+            utils::signatures::sign_package,
+        },
         services::{db::packages_repository::PackagesRepository, packages::PackagesService},
         test_utils::{
             db::tests::create_test_db,
@@ -297,6 +300,71 @@ mod tests {
         let expected_packages_count = 1;
 
         assert_eq!(db_packages.len(), expected_packages_count);
+
+        Ok(())
+    }
+
+    /**
+     * It should update package
+     */
+    #[tokio::test]
+    async fn test_should_update_package() -> Result<(), Box<dyn std::error::Error>> {
+        let expected_status = PackageStatus::Prohibited;
+
+        let db_client = create_test_db();
+
+        // Instantiate required resources
+
+        let packages_repository = Arc::new(PackagesRepository::from(&db_client));
+
+        let packages_service = Arc::new(PackagesService::from(&packages_repository));
+
+        let mut blockchain_mock = MockBlockchainClient::default();
+
+        blockchain_mock
+            .expect_get_label()
+            .returning(|| "MockBlockchain".to_string());
+
+        let blockchain_client: Box<dyn BlockchainClient> = Box::new(blockchain_mock);
+
+        let mut csprng = OsRng;
+        let mut key = SigningKey::generate(&mut csprng);
+
+        let base_package = create_package_without_sig(&key.verifying_key())?;
+
+        let sig = sign_package(&base_package, &mut key);
+
+        let signed_package = PackageBuilder::from_package(&base_package)
+            .set_signature(&sig)
+            .build();
+
+        packages_service
+            .add(&signed_package, &blockchain_client)
+            .await;
+
+        let mut updated_package = PackageBuilder::from_package(&base_package)
+            .set_status(&expected_status)
+            .build();
+
+        let signed_updated_package = sign_package(&updated_package, &mut key);
+
+        updated_package = PackageBuilder::from_package(&updated_package)
+            .set_signature(&signed_updated_package)
+            .build();
+
+        packages_service
+            .update_package(&updated_package, &blockchain_client)
+            .await;
+
+        let db_packages = packages_service
+            .get_by_release(
+                &updated_package.name,
+                &updated_package.version,
+                &blockchain_client,
+            )
+            .await;
+
+        assert_eq!(expected_status, db_packages[0].status);
 
         Ok(())
     }
