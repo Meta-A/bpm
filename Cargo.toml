@@ -4,7 +4,7 @@ members = [
 , "packages/core"]
 
 [workspace.dependencies]
-core = { version = "0.1.0", path = "packages/core" }
+bpm_core = { version = "0.1.0", path = "packages/core" }
 cargo-tarpaulin = { version = "0.31.2" }
 env_logger = "0.11.5"
 log = "0.4.22"
