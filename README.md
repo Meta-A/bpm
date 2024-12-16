@@ -10,6 +10,12 @@ BPM is a cross-platform software that allows for verifiable, proven and secure p
 
 This project is still WIP, we are currently at an early stage where we are figuring out how to architecture and build BPM. If you would like to join us do not mind reaching out to us :)
 
+# Clone repository
+
+```sh
+git clone --recurse-submodules git@github.com:Meta-A/bpm.git
+```
+
 # Current properties & features
 * Rust language
 * Hashing of source code & binaries
