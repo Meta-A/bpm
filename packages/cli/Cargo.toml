@@ -2,6 +2,11 @@
 name = "cli"
 version = "0.1.0"
 edition = "2021"
+license = "The Unlicense"
+description = "Cross-platform software helping to verify, prove and secure package compilation, building, fetching, and deployment. CLI interface."
+homepage = "https://github.com/Meta-A/bpm"
+repository = "https://github.com/Meta-A/bpm"
+readme = "../../README.md"
 
 [dev-dependencies]
 cargo-tarpaulin.workspace = true
