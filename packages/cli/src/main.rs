@@ -1,13 +1,13 @@
 mod commands;
 
-use core::config::init_config;
-use core::logging::init_logger;
+use bpm_core::config::init_config;
+use bpm_core::logging::init_logger;
 use home::home_dir;
 use log::info;
 
 use std::sync::Arc;
 
-use core::{
+use bpm_core::{
     db::client::DbClient,
     services::{
         blockchains::BlockchainsService, db::blockchains_repository::BlockchainsRepository,
@@ -20,7 +20,7 @@ use core::{
 #[cfg(not(tarpaulin_include))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use core::services::{
+    use bpm_core::services::{
         db::packages_repository::PackagesRepository, package_managers::PackageManagersService,
         packages::PackagesService,
     };
