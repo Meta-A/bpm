@@ -4,14 +4,14 @@ mod remove;
 mod submit;
 
 use clap::Parser;
-use core::{
+use bpm_core::{
     config::manager::ConfigManager,
     services::{blockchains::BlockchainsService, packages::PackagesService},
 };
 use mutate::MutateCommand;
 use remove::RemoveCommand;
 
-use core::services::package_managers::PackageManagersService;
+use bpm_core::services::package_managers::PackageManagersService;
 use dialoguer::{theme::ColorfulTheme, Select};
 use install::InstallCommand;
 use std::sync::Arc;

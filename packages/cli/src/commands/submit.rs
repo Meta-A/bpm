@@ -1,6 +1,6 @@
 use clap::Parser;
 use colored::*;
-use core::{
+use bpm_core::{
     config::manager::ConfigManager,
     packages::{
         package::{Package, DEFAULT_PACKAGE_STATUS},

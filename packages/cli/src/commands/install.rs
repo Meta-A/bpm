@@ -1,7 +1,7 @@
-use core::blockchains::errors::blockchain_error::BlockchainError;
-use core::packages::package::PackageStatus;
-use core::services::blockchains::BlockchainsService;
-use core::{config::manager::ConfigManager, services::package_managers::PackageManagersService};
+use bpm_core::blockchains::errors::blockchain_error::BlockchainError;
+use bpm_core::packages::package::PackageStatus;
+use bpm_core::services::blockchains::BlockchainsService;
+use bpm_core::{config::manager::ConfigManager, services::package_managers::PackageManagersService};
 use std::sync::Arc;
 use std::time::Duration;
 

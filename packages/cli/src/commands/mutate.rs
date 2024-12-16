@@ -1,9 +1,9 @@
-use core::config::manager::ConfigManager;
-use core::packages::package::PackageStatus;
-use core::packages::package_builder::PackageBuilder;
-use core::packages::utils::signatures::sign_package;
-use core::services::blockchains::BlockchainsService;
-use core::services::packages::PackagesService;
+use bpm_core::config::manager::ConfigManager;
+use bpm_core::packages::package::PackageStatus;
+use bpm_core::packages::package_builder::PackageBuilder;
+use bpm_core::packages::utils::signatures::sign_package;
+use bpm_core::services::blockchains::BlockchainsService;
+use bpm_core::services::packages::PackagesService;
 use std::sync::Arc;
 use std::time::Duration;
 

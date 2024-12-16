@@ -1,4 +1,4 @@
-use core::services::package_managers::PackageManagersService;
+use bpm_core::services::package_managers::PackageManagersService;
 
 use colored::Colorize;
 
