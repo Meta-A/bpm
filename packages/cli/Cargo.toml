@@ -1,5 +1,5 @@
 [package]
-name = "cli"
+name = "bpm"
 version = "0.1.0"
 edition = "2021"
 license = "Unlicense"
@@ -12,7 +12,7 @@ readme = "../../README.md"
 cargo-tarpaulin.workspace = true
 
 [dependencies]
-core = { workspace = true }
+bpm_core = { workspace = true }
 clap = { version = "4.5.19", features = ["derive"] }
 home = "0.5.9"
 tempfile = "3.13.0"
