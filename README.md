@@ -16,6 +16,18 @@ This project is still WIP, we are currently at an early stage where we are figur
 git clone --recurse-submodules git@github.com:Meta-A/bpm.git
 ```
 
+# Dependencies
+
+To build our project, you need to have the following dependencies installed:
+- `pkg-config`
+- `clang`
+- `protobuf`
+
+On Arch Linux, you can install them by running the following command:
+```bash
+pacman -S pkg-config clang protobuf
+```
+
 # Current properties & features
 * Rust language
 * Hashing of source code & binaries
