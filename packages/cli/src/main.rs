@@ -8,23 +8,14 @@ use log::info;
 use std::sync::Arc;
 
 use bpm_core::{
+    blockchains::get_available_clients,
     db::client::DbClient,
+    package_managers::init_package_managers,
     services::{
         blockchains::BlockchainsService, db::blockchains_repository::BlockchainsRepository,
-    },
-};
-
-use core::{
-    blockchains::get_available_clients,
-    services::{
         db::packages_repository::PackagesRepository, package_managers::PackageManagersService,
         packages::PackagesService,
     },
-};
-
-use bpm_core::services::{
-    db::packages_repository::PackagesRepository, package_managers::PackageManagersService,
-    packages::PackagesService,
 };
 
 /**

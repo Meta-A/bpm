@@ -1,5 +1,5 @@
 use bpm_core::blockchains::errors::blockchain_error::BlockchainError;
-use bpm_core::packages::package::PackageStatus;
+use bpm_core::packages::package_status::PackageStatus;
 use bpm_core::services::blockchains::BlockchainsService;
 use bpm_core::{
     config::manager::ConfigManager, services::package_managers::PackageManagersService,
