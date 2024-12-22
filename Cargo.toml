@@ -1,7 +1,10 @@
 [workspace]
 members = [ 
-	"packages/cli"
-, "packages/core"]
+	"packages/cli", 
+	"packages/core",
+	"packages/js-bindings"
+
+]
 
 [workspace.dependencies]
 bpm_core = { version = "0.1.0", path = "packages/core" }

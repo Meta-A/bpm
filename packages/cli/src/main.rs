@@ -25,6 +25,7 @@ use bpm_core::{
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_logger(log::LevelFilter::Info);
+
     const VERSION: &str = env!("CARGO_PKG_VERSION");
 
     info!("BPM v{}", VERSION);
