@@ -1,57 +1,25 @@
 use crate::packages::package_integrity::PackageIntegrity;
 
 use super::package_builder::PackageBuilder;
+use super::package_status::PackageStatus;
 use core::fmt;
 use ed25519::Signature;
 use ed25519_dalek::{VerifyingKey, PUBLIC_KEY_LENGTH, SIGNATURE_LENGTH};
 use rlp::{Decodable, DecoderError, Encodable, RlpStream};
-use serde::de::{self, Deserializer, MapAccess, SeqAccess, Visitor};
-use serde::{ser::SerializeStruct, Deserialize, Serialize};
+use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::{
+    ser::{Error, SerializeStruct},
+    Deserialize, Serialize,
+};
 use sha2::{Digest, Sha256};
-use strum_macros::{Display, EnumIter, EnumString};
 use url::Url;
 
 pub const DEFAULT_PACKAGE_STATUS: PackageStatus = PackageStatus::Fine;
 
 /**
- * Package status
- */
-#[derive(EnumIter, EnumString, PartialEq, Eq, PartialOrd, Display, Debug, Clone)]
-#[repr(u8)]
-pub enum PackageStatus {
-    #[strum(to_string = "NA")]
-    NA = 0x00,
-    #[strum(to_string = "Prohibited")]
-    Prohibited = 0x01,
-    #[strum(to_string = "Outdated")]
-    Outdated = 0x02,
-    #[strum(to_string = "Fine")]
-    Fine = 0x03,
-    #[strum(to_string = "Recommended")]
-    Recommended = 0x04,
-    #[strum(to_string = "Highly recommended")]
-    HighlyRecommended = 0x05,
-}
-
-impl TryFrom<u8> for PackageStatus {
-    type Error = &'static str;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(PackageStatus::NA),
-            1 => Ok(PackageStatus::Prohibited),
-            2 => Ok(PackageStatus::Outdated),
-            3 => Ok(PackageStatus::Fine),
-            4 => Ok(PackageStatus::Recommended),
-            5 => Ok(PackageStatus::HighlyRecommended),
-            _ => Err("Invalid value for PackageStatus"),
-        }
-    }
-}
-
-/**
  * Package
  */
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq)]
 pub struct Package {
     pub name: String,
     pub version: String,
@@ -104,7 +72,7 @@ impl Package {
     }
 
     pub fn builder() -> PackageBuilder {
-        PackageBuilder::new()
+        PackageBuilder::default()
     }
 }
 
@@ -124,11 +92,17 @@ impl Serialize for Package {
 
         state.serialize_field("maintainer", &self.maintainer.to_bytes())?;
 
+        state.serialize_field("archive_url", &self.archive_url.to_string())?;
+
         state.serialize_field("integrity", &self.integrity)?;
 
         let sig = match self.sig {
             Some(v) => v,
-            None => panic!("Signature must be attached to package when serializing it"),
+            None => {
+                return Err(S::Error::custom(
+                    "Signature must be attached to package when serializing it",
+                ))
+            }
         };
 
         state.serialize_field("sig", &sig.to_bytes().as_slice())?;
@@ -149,7 +123,7 @@ impl<'de> Deserialize<'de> for Package {
             Version,
             Status,
             Maintainer,
-            ArchiveUrl,
+            Archive_Url,
             Integrity,
             Sig,
         }
@@ -160,76 +134,6 @@ impl<'de> Deserialize<'de> for Package {
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str("struct Package")
-            }
-
-            fn visit_seq<V>(self, mut seq: V) -> Result<Package, V::Error>
-            where
-                V: SeqAccess<'de>,
-            {
-                let name = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(0, &self))?;
-
-                let version = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(1, &self))?;
-
-                // Parse status
-
-                let raw_status: u8 = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(2, &self))?;
-
-                let status =
-                    PackageStatus::try_from(raw_status).map_err(|e| de::Error::custom(e))?;
-
-                // Parse maintainer verifying key
-                let mut maintainer_raw_key_buf: [u8; PUBLIC_KEY_LENGTH] = [0; PUBLIC_KEY_LENGTH];
-
-                let maintainer_key_bytes: &[u8] = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(3, &self))?;
-
-                maintainer_raw_key_buf.copy_from_slice(&maintainer_key_bytes);
-
-                let maintainer: VerifyingKey = VerifyingKey::from_bytes(&maintainer_raw_key_buf)
-                    .map_err(|_| DecoderError::RlpExpectedToBeData)
-                    .unwrap();
-
-                // Parse url
-                let raw_url: &str = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(4, &self))?;
-                let archive_url = Url::parse(raw_url).unwrap();
-
-                // Parse integrity
-
-                let integrity: PackageIntegrity = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(5, &self))?;
-
-                // Parse signature
-
-                let mut sig_buf: [u8; SIGNATURE_LENGTH] = [0; SIGNATURE_LENGTH];
-
-                let sig_bytes: Vec<u8> = seq
-                    .next_element()?
-                    .ok_or_else(|| de::Error::invalid_length(6, &self))?;
-
-                sig_buf.copy_from_slice(&sig_bytes);
-
-                let sig = Signature::from_bytes(&sig_buf);
-
-                let package = Package {
-                    name,
-                    version,
-                    status,
-                    maintainer,
-                    archive_url,
-                    integrity,
-                    sig: Some(sig),
-                };
-                Ok(package)
             }
 
             fn visit_map<V>(self, mut map: V) -> Result<Package, V::Error>
@@ -288,7 +192,7 @@ impl<'de> Deserialize<'de> for Package {
                             );
                         }
 
-                        Field::ArchiveUrl => {
+                        Field::Archive_Url => {
                             if archive_url.is_some() {
                                 return Err(de::Error::duplicate_field("archive_url"));
                             }
@@ -327,6 +231,7 @@ impl<'de> Deserialize<'de> for Package {
 
                 let archive_url =
                     archive_url.ok_or_else(|| de::Error::missing_field("archive_url"))?;
+
                 let integrity = integrity.ok_or_else(|| de::Error::missing_field("integrity"))?;
                 let sig = sig.ok_or_else(|| de::Error::missing_field("sig"))?;
 
@@ -444,5 +349,152 @@ impl fmt::Display for Package {
 
 #[cfg(test)]
 mod tests {
+    use ed25519::signature::{rand_core::OsRng, SignerMut};
+    use ed25519_dalek::SigningKey;
+    use serde_json::json;
+    use std::any::{type_name, type_name_of_val};
+
+    use crate::test_utils::package::tests::{create_package_with_sig, create_package_without_sig};
+
     use super::*;
+
+    /**
+     * It should encode and decode package to RLP
+     */
+    #[test]
+    fn test_package_rlp_encode_decode() -> Result<(), Box<dyn std::error::Error>> {
+        let package = create_package_with_sig()?;
+
+        let encoded_package = rlp::encode(&package);
+
+        let decoded_package = PackageBuilder::from_rlp(&encoded_package)?.build();
+
+        Ok(())
+    }
+
+    /**
+     * It should throw error if no signature when encoding to RLP
+     */
+    #[test]
+    #[should_panic(expected = "Signature must be attached to package when encoding it")]
+    fn test_package_rlp_sig_err() {
+        let mut csprng = OsRng;
+        let key = SigningKey::generate(&mut csprng);
+
+        let expected_maintainer = key.verifying_key();
+
+        let package = create_package_without_sig(&expected_maintainer).unwrap();
+
+        rlp::encode(&package);
+
+        ()
+    }
+
+    /**
+     * It should serialize and deserialize json-encoded package without panic
+     */
+    #[test]
+    fn test_package_serialization() -> Result<(), Box<dyn std::error::Error>> {
+        let package = create_package_with_sig()?;
+
+        let json_encoded_package = serde_json::to_string(&package)?;
+
+        let _decoded_package: Package = serde_json::from_str(json_encoded_package.as_str())?;
+
+        Ok(())
+    }
+
+    /**
+     * It should return error when serializing package with sig missing
+     */
+    #[test]
+    fn test_package_serialization_sig_missing() -> Result<(), Box<dyn std::error::Error>> {
+        let mut csprng = OsRng;
+        let key = SigningKey::generate(&mut csprng);
+
+        let expected_maintainer = key.verifying_key();
+
+        let package = create_package_without_sig(&expected_maintainer).unwrap();
+
+        let json_encoded_package_result = serde_json::to_string(&package);
+
+        assert_eq!(
+            json_encoded_package_result.unwrap_err().to_string(),
+            "Signature must be attached to package when serializing it"
+        );
+
+        Ok(())
+    }
+
+    /**
+     * It should display package
+     */
+    #[test]
+    fn test_package_display() -> Result<(), Box<dyn std::error::Error>> {
+        let package = create_package_with_sig()?;
+
+        let expected_output = format!(
+            "{}:{} ( Status : {}, Maintainer : {} )",
+            package.name,
+            package.version,
+            package.status,
+            hex::encode_upper(package.maintainer)
+        );
+
+        let package_display = format!("{}", package);
+
+        assert_eq!(package_display, expected_output);
+        Ok(())
+    }
+
+    /**
+     * It should compute rlp data integrity
+     */
+    #[test]
+    fn test_rlp_data_integrity() -> Result<(), Box<dyn std::error::Error>> {
+        let package = create_package_with_sig()?;
+
+        let encoded_package_integrity = rlp::encode(&package.integrity);
+        let mut stream = rlp::RlpStream::new();
+
+        let encoded_status = package.status.clone() as u8;
+        stream
+            // Package name
+            .append(&package.name)
+            // Package version
+            .append(&package.version)
+            // Package status
+            .append(&encoded_status)
+            // Package maintainer
+            .append(&package.maintainer.to_bytes().as_slice())
+            // Package archive urls
+            .append(&package.archive_url.as_str())
+            // Package integrity
+            .append_list(&encoded_package_integrity);
+
+        let mut hasher = Sha256::new();
+
+        hasher.update(stream.as_raw().to_vec());
+
+        let expected_hash = hasher.finalize().to_vec();
+
+        let data_integrity = package.compute_data_integrity();
+
+        assert_eq!(expected_hash, data_integrity);
+
+        Ok(())
+    }
+
+    /**
+     * It should get builder
+     */
+    #[test]
+    fn test_return_package_builder() {
+        let package_builder = Package::builder();
+
+        assert_eq!(
+            type_name_of_val(&package_builder),
+            type_name::<PackageBuilder>()
+        );
+    }
 }

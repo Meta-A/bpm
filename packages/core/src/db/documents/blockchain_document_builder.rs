@@ -10,8 +10,8 @@ impl BlockchainDocumentBuilder {
     /**
      * Set label
      */
-    pub fn set_label(&mut self, label: String) -> &mut Self {
-        self.label = Some(label);
+    pub fn set_label(&mut self, label: &String) -> &mut Self {
+        self.label = Some(label.clone());
 
         self
     }
@@ -19,8 +19,8 @@ impl BlockchainDocumentBuilder {
     /**
      * Set blockchain last synchronization
      */
-    pub fn set_last_synchronization(&mut self, timestamp: String) -> &mut Self {
-        self.last_synchronization = Some(timestamp);
+    pub fn set_last_synchronization(&mut self, timestamp: &String) -> &mut Self {
+        self.last_synchronization = Some(timestamp.clone());
 
         self
     }
@@ -76,6 +76,7 @@ impl Default for BlockchainDocumentBuilder {
     }
 }
 
+#[cfg(test)]
 mod tests {
 
     use super::*;
@@ -88,8 +89,8 @@ mod tests {
         let expected_last_synchronization = "1704067200";
 
         let doc = builder
-            .set_label(expected_label.to_string())
-            .set_last_synchronization(expected_last_synchronization.to_string())
+            .set_label(&expected_label.to_string())
+            .set_last_synchronization(&expected_last_synchronization.to_string())
             .build();
 
         assert_eq!(doc.label, expected_label);
@@ -104,8 +105,8 @@ mod tests {
         let expected_last_synchronization = "1704067200";
 
         let doc = builder
-            .set_label(expected_label.to_string())
-            .set_last_synchronization(expected_last_synchronization.to_string())
+            .set_label(&expected_label.to_string())
+            .set_last_synchronization(&expected_last_synchronization.to_string())
             .reset();
 
         assert_eq!(doc.label, None);
@@ -120,8 +121,8 @@ mod tests {
         let last_sync_mock = "1704067200";
 
         let doc = builder
-            .set_label(label_mock.to_string())
-            .set_last_synchronization(last_sync_mock.to_string())
+            .set_label(&label_mock.to_string())
+            .set_last_synchronization(&last_sync_mock.to_string())
             .build();
 
         let new_doc = BlockchainDocumentBuilder::from_document(&doc).build();

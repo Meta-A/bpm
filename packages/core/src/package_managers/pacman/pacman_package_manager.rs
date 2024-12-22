@@ -13,6 +13,7 @@ use tempfile::tempdir;
 
 pub struct PacmanPackageManager;
 
+#[cfg(not(tarpaulin_include))] // TODO : Figure out way to test on multiple envs
 impl PacmanPackageManager {
     /**
      * Install using local archive
@@ -92,7 +93,15 @@ impl PacmanPackageManager {
 }
 
 #[async_trait::async_trait]
+#[cfg(not(tarpaulin_include))] // TODO : Figure out way to test on multiple envs
 impl PackageManager for PacmanPackageManager {
+    /**
+     * Get package manager name
+     */
+    fn get_name(&self) -> String {
+        String::from("pacman")
+    }
+
     /**
      * Fetch package content ( binaries, manpages... )
      */
@@ -143,8 +152,11 @@ impl PackageManager for PacmanPackageManager {
     }
 }
 
-#[cfg(test)]
-mod tests {
-
-    use super::*;
+impl Default for PacmanPackageManager {
+    fn default() -> Self {
+        Self {}
+    }
 }
+
+#[cfg(test)]
+mod tests {}

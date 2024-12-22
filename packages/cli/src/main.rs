@@ -8,9 +8,13 @@ use log::info;
 use std::sync::Arc;
 
 use bpm_core::{
+    blockchains::get_available_clients,
     db::client::DbClient,
+    package_managers::init_package_managers,
     services::{
         blockchains::BlockchainsService, db::blockchains_repository::BlockchainsRepository,
+        db::packages_repository::PackagesRepository, package_managers::PackageManagersService,
+        packages::PackagesService,
     },
 };
 
@@ -20,11 +24,6 @@ use bpm_core::{
 #[cfg(not(tarpaulin_include))]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    use bpm_core::services::{
-        db::packages_repository::PackagesRepository, package_managers::PackageManagersService,
-        packages::PackagesService,
-    };
-
     init_logger(log::LevelFilter::Info);
     const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -36,18 +35,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let db_client = Arc::new(DbClient::from(&config_manager.get_db_path()));
 
+    // Blockchains clients
+    let available_blockchains = get_available_clients();
+
+    // Package managers
+    let available_package_managers = init_package_managers().await;
+
     // Repositories
     let blockchains_repository = Arc::new(BlockchainsRepository::from(&db_client));
     let packages_repository = Arc::new(PackagesRepository::from(&db_client));
 
     // Services
-    let package_managers_service = Arc::new(PackageManagersService::new());
-
-    package_managers_service.init_package_managers().await;
+    let package_managers_service =
+        Arc::new(PackageManagersService::new(&available_package_managers));
 
     let packages_service = Arc::new(PackagesService::from(&packages_repository));
-    let blockchains_service =
-        Arc::new(BlockchainsService::new(&blockchains_repository, &packages_service).await);
+
+    let blockchains_service = Arc::new(
+        BlockchainsService::new(
+            &available_blockchains,
+            &blockchains_repository,
+            &packages_service,
+        )
+        .await,
+    );
 
     blockchains_service.init_blockchains().await;
 

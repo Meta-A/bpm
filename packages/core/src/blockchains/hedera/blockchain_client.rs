@@ -25,22 +25,30 @@ use tonic::{
     Streaming,
 };
 
+#[cfg(test)]
+use mockall::automock;
+
+#[derive(Debug, Clone)]
 struct HederaBlockchainIO {
-    network: String,
-    last_sync: u64,
     packages_topic: TopicId,
     hedera_client: Client,
 }
 
+#[cfg_attr(test, automock)]
 impl HederaBlockchainIO {
     /**
      * Create new gRPC channel to HCS
      */
     async fn new_channel(&self) -> Result<Channel, BlockchainError> {
         debug!("Establishing new HCS channel...");
+
+        let networks = self.hedera_client.mirror_network();
+
+        let network = String::from(networks.first().unwrap());
+
         let tls = ClientTlsConfig::new().with_native_roots();
 
-        let remote_url = format!("https://{}", self.network.to_string()); // We must prefix scheme
+        let remote_url = format!("https://{}", network.to_string()); // We must prefix scheme
 
         let channel = Channel::from_shared(remote_url)
             .map_err(|_| BlockchainError::ConnectionConfig)?
@@ -116,9 +124,9 @@ impl BlockchainIO for HederaBlockchainIO {
     /**
      * Read from HCS
      */
-    async fn read(&self, tx_data: &Sender<Result<Vec<u8>, BlockchainError>>) {
+    async fn read(&self, tx_data: &Sender<Result<Vec<u8>, BlockchainError>>, last_sync: &u64) {
         let stream_res = self
-            .new_topic_subscription(self.packages_topic, self.last_sync)
+            .new_topic_subscription(self.packages_topic, *last_sync)
             .await;
 
         let mut stream = match stream_res {
@@ -145,26 +153,51 @@ impl BlockchainIO for HederaBlockchainIO {
     }
 }
 
-#[derive(Debug, Clone)]
+impl From<&str> for HederaBlockchainIO {
+    fn from(package_topic_id: &str) -> Self {
+        // TODO : temporary, use config manager
+        let debug_account = env::var("BPM_ACCOUNT").unwrap_or(String::from(""));
+        let debug_key = env::var("BPM_KEY").unwrap_or(String::from(""));
+
+        let blockchain_client = Client::for_testnet();
+
+        if debug_account != "" && debug_key != "" {
+            let account_id = AccountId::from_str(debug_account.as_str()).unwrap();
+            let private_key = PrivateKey::from_str(debug_key.as_str()).unwrap();
+            blockchain_client.set_operator(account_id, private_key);
+        }
+
+        let topic = TopicId::from_str(&package_topic_id).unwrap();
+
+        let instance = Self {
+            hedera_client: blockchain_client,
+            packages_topic: topic,
+        };
+
+        instance
+    }
+}
+
+#[derive(Debug)]
 pub struct HederaBlockchain {
-    blockchain_client: Client,
-    packages_topic: TopicId,
+    hedera_io: Arc<Box<dyn BlockchainIO>>,
     last_sync: Arc<Mutex<u64>>,
 }
 
-#[async_trait::async_trait]
-impl BlockchainClient for HederaBlockchain {
-    /**
-     * Get HCS network
-     */
-    fn get_network(&self) -> String {
-        let networks = self.blockchain_client.mirror_network();
+impl HederaBlockchain {
+    pub fn new(hedera_io: Box<dyn BlockchainIO>) -> Self {
+        let instance = Self {
+            hedera_io: Arc::new(hedera_io),
+            last_sync: Arc::new(Mutex::new(0)),
+        };
 
-        let network = String::from(networks.first().unwrap());
-
-        network
+        instance
     }
+}
 
+#[async_trait::async_trait]
+#[cfg_attr(test, automock)]
+impl BlockchainClient for HederaBlockchain {
     /**
      * Get blockchain label
      */
@@ -175,17 +208,8 @@ impl BlockchainClient for HederaBlockchain {
     /**
      * Create HCS IO
      */
-    async fn create_io(&self) -> Box<dyn BlockchainIO> {
-        // Hedera IO is short lived so it's fine to deref
-        let last_sync = *self.last_sync.lock().await;
-        let hedera_io = HederaBlockchainIO {
-            network: self.get_network(),
-            last_sync,
-            packages_topic: self.packages_topic,
-            hedera_client: self.blockchain_client.clone(),
-        };
-
-        Box::new(hedera_io)
+    async fn create_io(&self) -> Arc<Box<dyn BlockchainIO>> {
+        Arc::clone(&self.hedera_io)
     }
 
     /**
@@ -212,33 +236,21 @@ impl From<&str> for HederaBlockchain {
      */
     fn from(package_topic_id: &str) -> Self {
         debug!("Creating Hedera Blockchain Client using default parameters...");
+        let default_last_sync = 0;
 
-        let blockchain_client = Client::for_testnet();
+        let hedera_io = Box::new(HederaBlockchainIO::from(package_topic_id));
 
-        // TODO : temporary, use config manager
-        let debug_account = env::var("BPM_ACCOUNT").unwrap_or(String::from(""));
-        let debug_key = env::var("BPM_KEY").unwrap_or(String::from(""));
-
-        if debug_account != "" && debug_key != "" {
-            let account_id = AccountId::from_str(debug_account.as_str()).unwrap();
-            let private_key = PrivateKey::from_str(debug_key.as_str()).unwrap();
-            blockchain_client.set_operator(account_id, private_key);
-        }
-
-        let topic = TopicId::from_str(&package_topic_id).unwrap();
-
-        let client = Self {
-            blockchain_client,
-            packages_topic: topic,
-            last_sync: Arc::new(Mutex::new(0)),
-        };
-
-        let net_addr = client
-            .blockchain_client
+        let net_addr = hedera_io
+            .hedera_client
             .mirror_network()
             .first()
             .unwrap()
             .to_string();
+
+        let client = Self {
+            hedera_io: Arc::new(hedera_io),
+            last_sync: Arc::new(Mutex::new(default_last_sync)),
+        };
 
         debug!(
             "Done creating Hedera Blockchain Client using network address : {} !",
@@ -246,5 +258,78 @@ impl From<&str> for HederaBlockchain {
         );
 
         client
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::blockchains::blockchain::{BlockchainClient, BlockchainIO, MockBlockchainIO};
+
+    use super::HederaBlockchain;
+
+    /**
+     * It should get label
+     */
+    #[tokio::test]
+    async fn test_should_get_label() {
+        let hedera_io_mock = MockBlockchainIO::default();
+
+        let hedera_io: Box<dyn BlockchainIO> = Box::new(hedera_io_mock);
+
+        let blockchain_client = HederaBlockchain::new(hedera_io);
+
+        let expected_label = String::from("hedera");
+
+        let current_label = blockchain_client.get_label();
+        assert_eq!(current_label, expected_label);
+    }
+
+    /**
+     * It should set last sync
+     */
+    #[tokio::test]
+    async fn test_should_set_last_sync() {
+        let mut hedera_io_mock = MockBlockchainIO::default();
+
+        hedera_io_mock
+            .expect_read()
+            .returning(|_, _| Box::pin(async {}));
+
+        hedera_io_mock
+            .expect_write()
+            .returning(|_| Box::pin(async {}));
+
+        let hedera_io: Box<dyn BlockchainIO> = Box::new(hedera_io_mock);
+
+        let blockchain_client = HederaBlockchain::new(hedera_io);
+
+        let expected_last_sync = 123;
+
+        blockchain_client.set_last_sync(expected_last_sync).await;
+
+        let current_last_sync = blockchain_client.get_last_sync().await;
+        assert_eq!(current_last_sync, expected_last_sync);
+    }
+
+    /**
+     * It should create IO
+     */
+    #[tokio::test]
+    async fn test_should_create_io() {
+        let mut hedera_io_mock = MockBlockchainIO::default();
+
+        hedera_io_mock
+            .expect_read()
+            .returning(|_, _| Box::pin(async {}));
+
+        hedera_io_mock
+            .expect_write()
+            .returning(|_| Box::pin(async {}));
+
+        let hedera_io: Box<dyn BlockchainIO> = Box::new(hedera_io_mock);
+
+        let blockchain_client = HederaBlockchain::new(hedera_io);
+
+        let io = blockchain_client.create_io().await;
     }
 }

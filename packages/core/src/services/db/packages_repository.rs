@@ -17,7 +17,7 @@ impl PackagesRepository {
      * Get composed key parts
      * Composed key is currently -> blockchain_label:package_name:package_version:maintainer_key
      */
-    fn get_composed_key_parts(&self, key: &String) -> (String, String, String, String) {
+    fn get_composite_key_parts(&self, key: &String) -> (String, String, String, String) {
         let splitted_key: Vec<&str> = key.split(COMPOSED_KEY_SEPARATOR).collect();
 
         let blockchain_label = String::from(splitted_key[0]);
@@ -34,31 +34,13 @@ impl PackagesRepository {
     }
 
     /**
-     * Return Bson expected types from provided key
-     */
-    fn get_bson_composed_key_parts(&self, key: &String) -> (String, String, String, String) {
-        let (blockchain_label, package_name, package_version, maintainer_key) =
-            self.get_composed_key_parts(&key);
-
-        (
-            blockchain_label,
-            package_name,
-            package_version,
-            maintainer_key,
-        )
-    }
-
-    /**
      * Create unique composed key
      */
-    pub fn get_composed_key(
-        &self,
-        blockchain_label: &String,
-        package_name: &String,
-        package_version: &String,
-        maintainer_key: &String,
-    ) -> String {
-        let key = format!("{blockchain_label}:{package_name}:{package_version}:{maintainer_key}");
+    pub fn get_composite_key(&self, document: &PackageDocument) -> String {
+        let key = format!(
+            "{}:{}:{}:{}",
+            document.blockchain_label, document.name, document.version, document.maintainer
+        );
 
         key
     }
@@ -148,20 +130,17 @@ impl Repository<PackageDocument, String> for PackagesRepository {
         let collection = self.db_client.get_packages_collection().await;
 
         let (blockchain_label, package_name, package_version, maintainer_key) =
-            self.get_bson_composed_key_parts(key);
+            self.get_composite_key_parts(key);
 
-        let db_response_result = collection.find_one(doc! {
-            "name": package_name,
-            "version": package_version,
-            "maintainer": maintainer_key,
-            "blockchain_label": blockchain_label,
+        let db_response = collection
+            .find_one(doc! {
+                "name": package_name,
+                "version": package_version,
+                "maintainer": maintainer_key,
+                "blockchain_label": blockchain_label,
 
-        });
-
-        let db_response = match db_response_result {
-            Ok(res) => res,
-            Err(_) => None,
-        };
+            })
+            .unwrap();
 
         debug!("Done searching blockchain in repo using key !");
 
@@ -183,20 +162,13 @@ impl Repository<PackageDocument, String> for PackagesRepository {
     /**
      * Update package document
      */
-    async fn update(&self, document: &PackageDocument) {
+    async fn update(&self, doc_composite_key: &String, document: &PackageDocument) {
         debug!("Updating package in repo...");
 
         let collection = self.db_client.get_packages_collection().await;
 
-        let composed_key = self.get_composed_key(
-            &document.blockchain_label,
-            &document.name,
-            &document.version,
-            &document.maintainer,
-        );
-
         let (blockchain_label, package_name, package_version, maintainer_key) =
-            self.get_bson_composed_key_parts(&composed_key);
+            self.get_composite_key_parts(&doc_composite_key);
 
         collection
             .update_one(
@@ -239,5 +211,314 @@ impl From<&Arc<DbClient>> for PackagesRepository {
         Self {
             db_client: Arc::clone(value),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use crate::{
+        blockchains::{blockchain::BlockchainClient, hedera::blockchain_client::HederaBlockchain},
+        db::{
+            client::DbClient, documents::package_document_builder::PackageDocumentBuilder,
+            traits::repository::Repository,
+        },
+        packages::package_status::PackageStatus,
+        test_utils::package::tests::create_package_with_sig,
+    };
+    use tempfile::TempDir;
+
+    use super::*;
+
+    /**
+     * It should create package entry
+     */
+    #[tokio::test]
+    async fn test_create_package_entry() {
+        let package = create_package_with_sig().unwrap();
+
+        let db_dir = "db";
+
+        let test_dir = TempDir::new().unwrap();
+
+        let test_dir_path = test_dir.path().join(db_dir);
+
+        let db_client = Arc::new(DbClient::from(&test_dir_path));
+
+        let packages_repo = PackagesRepository::from(&db_client);
+
+        let blockchain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        let expected_package_doc =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
+
+        packages_repo.create(&expected_package_doc).await;
+
+        let expected_package_doc_key = &packages_repo.get_composite_key(&expected_package_doc);
+
+        let actual_package_doc = packages_repo
+            .read_by_key(&expected_package_doc_key)
+            .await
+            .unwrap();
+
+        assert_eq!(actual_package_doc, expected_package_doc);
+    }
+
+    /**
+     * It should return None if package not found
+     */
+    #[tokio::test]
+    async fn test_package_not_found_by_key() {
+        let package = create_package_with_sig().unwrap();
+        let db_dir = "db";
+
+        let test_dir = TempDir::new().unwrap();
+
+        let test_dir_path = test_dir.path().join(db_dir);
+
+        let db_client = Arc::new(DbClient::from(&test_dir_path));
+
+        let packages_repo = PackagesRepository::from(&db_client);
+
+        let blockchain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        // do not insert it in db
+        let package_doc =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
+
+        let key = packages_repo.get_composite_key(&package_doc);
+
+        let package_doc_opt = packages_repo.read_by_key(&key).await;
+
+        assert_eq!(package_doc_opt.is_none(), true);
+    }
+
+    /**
+     * It should read by release
+     */
+    #[tokio::test]
+    async fn test_read_by_release_entry() {
+        let package = create_package_with_sig().unwrap();
+
+        let db_dir = "db";
+
+        let test_dir = TempDir::new().unwrap();
+
+        let test_dir_path = test_dir.path().join(db_dir);
+
+        let db_client = Arc::new(DbClient::from(&test_dir_path));
+
+        let packages_repo = PackagesRepository::from(&db_client);
+
+        let blockchain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        let expected_package_doc =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
+
+        packages_repo.create(&expected_package_doc).await;
+
+        let packages_docs = packages_repo
+            .read_by_release(
+                &package.name,
+                &package.version,
+                &blockchain_client.get_label(),
+            )
+            .await;
+
+        assert_eq!(packages_docs[0], expected_package_doc);
+    }
+
+    /**
+     * It should read by maintainer
+     */
+    #[tokio::test]
+    async fn test_read_by_maintainer_entry() {
+        let package = create_package_with_sig().unwrap();
+
+        let db_dir = "db";
+
+        let test_dir = TempDir::new().unwrap();
+
+        let test_dir_path = test_dir.path().join(db_dir);
+
+        let db_client = Arc::new(DbClient::from(&test_dir_path));
+
+        let packages_repo = PackagesRepository::from(&db_client);
+
+        let blockchain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        let expected_package_doc =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
+
+        packages_repo.create(&expected_package_doc).await;
+
+        let packages_docs = packages_repo
+            .read_by_maintainer(
+                &expected_package_doc.maintainer,
+                &blockchain_client.get_label(),
+            )
+            .await;
+
+        assert_eq!(packages_docs[0], expected_package_doc);
+    }
+
+    /**
+     * It should read all packages entries
+     */
+    #[tokio::test]
+    async fn test_read_all_packages_entries() {
+        let package = create_package_with_sig().unwrap();
+
+        let db_dir = "db";
+
+        let test_dir = TempDir::new().unwrap();
+
+        let test_dir_path = test_dir.path().join(db_dir);
+
+        let db_client = Arc::new(DbClient::from(&test_dir_path));
+
+        let packages_repo = PackagesRepository::from(&db_client);
+
+        let blockchain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        let expected_package_doc_one =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
+
+        let expected_package_doc_two_mock = "bar".to_string();
+        let expected_package_doc_two =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client)
+                .set_name(&expected_package_doc_two_mock)
+                .build();
+
+        packages_repo.create(&expected_package_doc_one).await;
+        packages_repo.create(&expected_package_doc_two).await;
+
+        let expected_packages_docs = vec![expected_package_doc_one, expected_package_doc_two];
+
+        let packages_docs = packages_repo.read_all().await;
+
+        assert_eq!(packages_docs, expected_packages_docs);
+    }
+
+    /**
+     * It should update package entry
+     */
+    #[tokio::test]
+    async fn test_update_package_entry() {
+        let package = create_package_with_sig().unwrap();
+
+        let db_dir = "db";
+
+        let test_dir = TempDir::new().unwrap();
+
+        let test_dir_path = test_dir.path().join(db_dir);
+
+        let db_client = Arc::new(DbClient::from(&test_dir_path));
+
+        let packages_repo = PackagesRepository::from(&db_client);
+
+        let blockchain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        // Create package entry
+        let package_doc_mock =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
+
+        packages_repo.create(&package_doc_mock).await;
+
+        let package_doc_mock_key = &packages_repo.get_composite_key(&package_doc_mock);
+
+        // Update package entry
+
+        let expected_status = PackageStatus::Outdated;
+        let expected_package_doc = PackageDocumentBuilder::from_document(&package_doc_mock)
+            .set_status(&expected_status)
+            .build();
+
+        packages_repo
+            .update(package_doc_mock_key, &expected_package_doc)
+            .await;
+
+        let expected_package_doc_key = &packages_repo.get_composite_key(&expected_package_doc);
+
+        let actual_package_doc = packages_repo
+            .read_by_key(&expected_package_doc_key)
+            .await
+            .unwrap();
+
+        assert_eq!(actual_package_doc.status, i32::from(expected_status as u8));
+    }
+
+    /**
+     * It should exist by composite key
+     */
+    #[tokio::test]
+    async fn test_should_exist_by_composite_key() {
+        let package = create_package_with_sig().unwrap();
+
+        let db_dir = "db";
+
+        let test_dir = TempDir::new().unwrap();
+
+        let test_dir_path = test_dir.path().join(db_dir);
+
+        let db_client = Arc::new(DbClient::from(&test_dir_path));
+
+        let packages_repo = PackagesRepository::from(&db_client);
+
+        let expected_exists = true;
+
+        let blockchain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        let package_doc =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
+
+        packages_repo.create(&package_doc).await;
+
+        let expected_package_doc_key = packages_repo.get_composite_key(&package_doc);
+
+        let exists = packages_repo.exists_by_key(&expected_package_doc_key).await;
+
+        assert_eq!(exists, expected_exists);
+    }
+
+    /**
+     * It should not exist by composite key
+     */
+    #[tokio::test]
+    async fn test_should_not_exist_by_composite_key() {
+        let package = create_package_with_sig().unwrap();
+
+        let db_dir = "db";
+
+        let test_dir = TempDir::new().unwrap();
+
+        let test_dir_path = test_dir.path().join(db_dir);
+
+        let db_client = Arc::new(DbClient::from(&test_dir_path));
+
+        let packages_repo = PackagesRepository::from(&db_client);
+
+        let expected_exists = false;
+
+        let blockchain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        // do not insert package_doc
+        let package_doc =
+            PackageDocumentBuilder::from_package(&package, &blockchain_client).build();
+
+        let expected_package_doc_key = packages_repo.get_composite_key(&package_doc);
+
+        let exists = packages_repo.exists_by_key(&expected_package_doc_key).await;
+
+        assert_eq!(exists, expected_exists);
     }
 }

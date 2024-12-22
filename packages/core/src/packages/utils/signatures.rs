@@ -41,3 +41,54 @@ pub fn verify_package(untrusted_package: &Package) -> Option<&Package> {
 
     verified_package
 }
+
+#[cfg(test)]
+mod tests {
+    use ed25519::signature::{rand_core::OsRng, SignerMut};
+    use ed25519_dalek::SigningKey;
+    use sha2::{Digest, Sha256};
+
+    use crate::{
+        packages::package_builder::PackageBuilder,
+        test_utils::package::tests::create_package_with_sig,
+    };
+
+    use super::*;
+
+    /**
+     * It should verify package
+     */
+    #[test]
+    fn test_verify_package() -> Result<(), Box<dyn std::error::Error>> {
+        let package = create_package_with_sig()?;
+
+        let verified_package = verify_package(&package);
+
+        assert_eq!(verified_package.is_some(), true);
+
+        Ok(())
+    }
+
+    /**
+     * It should not verify package
+     */
+    #[test]
+    fn test_should_not_verify_package() -> Result<(), Box<dyn std::error::Error>> {
+        let base_package = create_package_with_sig()?;
+
+        // Sign with another key than the one contained in package's maintainer field
+        let mut csprng = OsRng;
+        let mut key = SigningKey::generate(&mut csprng);
+
+        let unknown_sig = sign_package(&base_package, &mut key);
+        let forged_package = PackageBuilder::from_package(&base_package)
+            .set_signature(&unknown_sig)
+            .build();
+
+        let verified_package = verify_package(&forged_package);
+
+        assert_eq!(verified_package.is_none(), true);
+
+        Ok(())
+    }
+}

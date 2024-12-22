@@ -6,12 +6,10 @@ use url::Url;
 use crate::db::documents::package_document::PackageDocument;
 
 use super::{
-    package::{Package, PackageStatus},
-    package_integrity::PackageIntegrity,
-    package_integrity_builder::PackageIntegrityBuilder,
+    package::Package, package_integrity::PackageIntegrity,
+    package_integrity_builder::PackageIntegrityBuilder, package_status::PackageStatus,
 };
 
-#[derive(Default)]
 pub struct PackageBuilder {
     /**
      * Package name
@@ -97,21 +95,6 @@ impl PackageBuilder {
     }
 
     /**
-     * Create new package builder instance
-     */
-    pub fn new() -> Self {
-        Self {
-            name: None,
-            version: None,
-            status: None,
-            maintainer: None,
-            archive_url: None,
-            integrity: None,
-            sig: None,
-        }
-    }
-
-    /**
      * Reset builder instance
      */
     pub fn reset(&mut self) -> &Self {
@@ -143,9 +126,9 @@ impl PackageBuilder {
     }
 
     /**
-     * Parse rpl and extract package information
+     * Parse rlp and extract package information
      */
-    pub fn from_rpl(raw_package: &[u8]) -> Result<Self, DecoderError> {
+    pub fn from_rlp(raw_package: &[u8]) -> Result<Self, DecoderError> {
         let package: Package = rlp::decode(&raw_package)?;
 
         let instance = Self {
@@ -253,6 +236,23 @@ impl PackageBuilder {
     }
 }
 
+impl Default for PackageBuilder {
+    /**
+     * Create new package builder instance
+     */
+    fn default() -> Self {
+        Self {
+            name: None,
+            version: None,
+            status: None,
+            maintainer: None,
+            archive_url: None,
+            integrity: None,
+            sig: None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -260,11 +260,19 @@ mod tests {
     use ed25519_dalek::SigningKey;
     use sha2::{Digest, Sha256};
 
+    use crate::{
+        blockchains::{blockchain::BlockchainClient, hedera::blockchain_client::HederaBlockchain},
+        db::documents::{
+            package_document_builder::PackageDocumentBuilder,
+            package_integrity_document_builder::PackageIntegrityDocumentBuilder,
+        },
+    };
+
     use super::*;
 
     #[test]
     fn test_package_build() -> Result<(), Box<dyn std::error::Error>> {
-        let mut builder = PackageBuilder::new();
+        let mut builder = PackageBuilder::default();
 
         let expected_name = "foo".to_string();
         let expected_version = "1.2.3".to_string();
@@ -328,7 +336,7 @@ mod tests {
 
     #[test]
     fn test_package_build_from_package() -> Result<(), Box<dyn std::error::Error>> {
-        let mut builder = PackageBuilder::new();
+        let mut builder = PackageBuilder::default();
 
         let expected_name = "foo".to_string();
         let expected_version = "1.2.3".to_string();
@@ -394,7 +402,169 @@ mod tests {
 
     #[test]
     fn test_package_reset() -> Result<(), Box<dyn std::error::Error>> {
-        let mut builder = PackageBuilder::new();
+        let mut builder = PackageBuilder::default();
+
+        let expected_name = "foo".to_string();
+        let expected_version = "1.2.3".to_string();
+        let expected_status = PackageStatus::Fine;
+
+        let mut csprng = OsRng;
+        let mut key = SigningKey::generate(&mut csprng);
+
+        let expected_maintainer = key.verifying_key();
+
+        let expected_archive_url = Url::parse(
+            "https://archive.archlinux.org/packages/f/foo/foo-1.2.3-1-x86_64.pkg.tar.zst",
+        )?;
+
+        // Pkg integrity
+        let expected_integrity_algorithm = "SHA256";
+
+        let mut package_archive_hasher = Sha256::new();
+        package_archive_hasher.update("foo");
+        let expected_archive_hash = package_archive_hasher.finalize().to_vec();
+
+        // Pkg sig
+        let package_info_hash_data = format!(
+            "{expected_name}{expected_version}{}{}{expected_archive_url}{}{}",
+            expected_status,
+            hex::encode(expected_maintainer),
+            expected_integrity_algorithm,
+            hex::encode(expected_archive_hash.clone())
+        );
+
+        let mut package_sig_hasher = Sha256::new();
+
+        package_sig_hasher.update(package_info_hash_data);
+
+        let package_data_hash = package_sig_hasher.finalize();
+
+        let expected_sig = key.sign(&package_data_hash);
+
+        let _ = builder
+            .set_name(&expected_name)
+            .set_version(&expected_version)
+            .set_status(&expected_status)
+            .set_maintainer(&expected_maintainer)
+            .set_archive_url(&expected_archive_url)
+            .set_integrity(
+                &expected_integrity_algorithm.to_string(),
+                &expected_archive_hash,
+            )
+            .set_signature(&expected_sig)
+            .build();
+
+        assert_eq!(builder.name, None);
+        assert_eq!(builder.version, None);
+        assert_eq!(builder.status, None);
+        assert_eq!(builder.maintainer, None);
+        assert_eq!(builder.archive_url, None);
+        assert_eq!(builder.sig, None);
+
+        Ok(())
+    }
+
+    /**
+     * It should build from package document
+     */
+    #[tokio::test]
+    async fn test_package_build_from_package_doc() -> Result<(), Box<dyn std::error::Error>> {
+        // Build doc
+        let mut doc_builder = PackageDocumentBuilder::default();
+
+        let name_mock = "foo".to_string();
+        let version_mock = "1.2.3".to_string();
+        let status_mock = PackageStatus::Fine;
+
+        let mut csprng = OsRng;
+        let mut key = SigningKey::generate(&mut csprng);
+
+        let maintainer_mock = key.verifying_key();
+
+        let archive_url_mock = Url::parse(
+            "https://archive.archlinux.org/packages/f/foo/foo-1.2.3-1-x86_64.pkg.tar.zst",
+        )?;
+
+        // Pkg integrity
+        let integrity_algorithm_mock = "SHA256".to_string();
+
+        let mut package_archive_hasher = Sha256::new();
+        package_archive_hasher.update("foo");
+
+        let archive_hash_mock = package_archive_hasher.finalize().to_vec();
+
+        let package_integrity_document = PackageIntegrityDocumentBuilder::default()
+            .set_algorithm(&integrity_algorithm_mock)
+            .set_archive_hash(&archive_hash_mock)
+            .build();
+
+        // Pkg sig
+        let package_info_hash_data = format!(
+            "{name_mock}{version_mock}{}{}{archive_url_mock}{}{}",
+            status_mock,
+            hex::encode(maintainer_mock),
+            integrity_algorithm_mock,
+            hex::encode(archive_hash_mock.clone())
+        );
+
+        let mut package_sig_hasher = Sha256::new();
+
+        package_sig_hasher.update(package_info_hash_data);
+
+        let package_data_hash = package_sig_hasher.finalize();
+
+        let sig_mock = key.sign(&package_data_hash);
+
+        // Pkg related blockchain
+
+        let blockhain_client: Box<dyn BlockchainClient> =
+            Box::new(HederaBlockchain::from("4991716"));
+
+        let package_doc = doc_builder
+            .set_name(&name_mock)
+            .set_version(&version_mock)
+            .set_status(&status_mock)
+            .set_maintainer(&maintainer_mock)
+            .set_archive_url(&archive_url_mock)
+            .set_blockchain(&blockhain_client)
+            .set_integrity(&package_integrity_document)
+            .set_signature(&sig_mock)
+            .build();
+
+        // Build package
+
+        let package = PackageBuilder::from_document(&package_doc).build();
+        assert_eq!(package.name, package_doc.name);
+        assert_eq!(package.version, package_doc.version);
+        assert_eq!(
+            package.status,
+            PackageStatus::try_from(package_doc.status as u8)?
+        );
+
+        let mut maintainer_raw_key_buf: [u8; PUBLIC_KEY_LENGTH] = [0; PUBLIC_KEY_LENGTH];
+        let maintainer_key_bytes: Vec<u8> = hex::decode(package_doc.maintainer)?;
+        maintainer_raw_key_buf.copy_from_slice(&maintainer_key_bytes);
+
+        assert_eq!(
+            package.maintainer,
+            VerifyingKey::from_bytes(&maintainer_raw_key_buf)?
+        );
+        assert_eq!(package.archive_url.to_string(), package_doc.archive_url);
+
+        let mut sig_buf: [u8; SIGNATURE_LENGTH] = [0; SIGNATURE_LENGTH];
+        let sig_bytes: Vec<u8> = hex::decode(package_doc.sig)?;
+        sig_buf.copy_from_slice(&sig_bytes);
+
+        assert_eq!(package.sig.unwrap(), Signature::from_bytes(&sig_buf));
+        Ok(())
+    }
+
+    /**
+     * It should build from rlp data
+     */
+    #[test]
+    fn test_package_build_from_rlp() -> Result<(), Box<dyn std::error::Error>> {
+        let mut builder = PackageBuilder::default();
 
         let expected_name = "foo".to_string();
         let expected_version = "1.2.3".to_string();
@@ -446,12 +616,16 @@ mod tests {
             .set_signature(&expected_sig)
             .build();
 
-        assert_eq!(builder.name, None);
-        assert_eq!(builder.version, None);
-        assert_eq!(builder.status, None);
-        assert_eq!(builder.maintainer, None);
-        assert_eq!(builder.archive_url, None);
-        assert_eq!(builder.sig, None);
+        let encoded_package = rlp::encode(&package);
+
+        let decoded_package = PackageBuilder::from_rlp(&encoded_package)?.build();
+
+        assert_eq!(decoded_package.name, expected_name);
+        assert_eq!(decoded_package.version, expected_version);
+        assert_eq!(decoded_package.status, expected_status);
+        assert_eq!(decoded_package.maintainer, expected_maintainer);
+        assert_eq!(decoded_package.archive_url, expected_archive_url);
+        assert_eq!(decoded_package.sig.unwrap(), expected_sig);
 
         Ok(())
     }

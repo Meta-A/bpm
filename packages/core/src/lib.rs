@@ -5,4 +5,6 @@ pub mod logging;
 pub mod package_managers;
 pub mod packages;
 pub mod services;
+pub mod test_utils;
+pub mod types;
 pub mod utils;

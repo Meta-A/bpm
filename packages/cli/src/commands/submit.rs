@@ -123,7 +123,7 @@ impl SubmitCommand {
 
         //let package_source_code_hash =
         //    compute_package_file_hash(&package_archive_directory).await?;
-        let mut builder = PackageBuilder::new();
+        let mut builder = PackageBuilder::default();
 
         // Build base package
         let package = builder

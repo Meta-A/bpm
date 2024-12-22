@@ -5,7 +5,6 @@ use std::{
     path::PathBuf,
 };
 
-use config::{Config, FileFormat};
 use ed25519::{
     pkcs8::{spki::der::pem::LineEnding, DecodePrivateKey, EncodePrivateKey},
     signature::rand_core::OsRng,
@@ -19,7 +18,7 @@ const DEFAULT_CONFIG: CoreConfig = CoreConfig { proxy: None };
 
 const PRIVATE_KEY_FILENAME: &str = "key.pem";
 
-const DB_FILENAME: &str = "db";
+const DB_DIR_NAME: &str = "db";
 
 /**
  * Configuration manager
@@ -90,7 +89,6 @@ impl ConfigManager {
     /**
      * Write key file
      */
-
     fn write_key_file(key_path: &PathBuf) -> Result<File, Box<dyn std::error::Error>> {
         debug!("Writing key file...");
 
@@ -112,25 +110,26 @@ impl ConfigManager {
 
         Ok(key_file)
     }
-    /**
-     * Load config
-     */
-    pub fn load(&self) -> Result<Config, IOError> {
-        debug!("Loading BBPM config...");
 
-        let config = Config::builder()
-            .add_source(config::File::new(
-                self.path.as_path().as_os_str().to_str().unwrap(),
-                FileFormat::Json,
-            ))
-            .add_source(config::Environment::with_prefix("BBPM"))
-            .build()
-            .unwrap();
-
-        debug!("Done loading BBPM config !");
-
-        Ok(config)
-    }
+    ///**
+    // * Load config
+    // */
+    //pub fn load(&self) -> Result<Config, IOError> {
+    //    debug!("Loading BPM config...");
+    //
+    //    let config = Config::builder()
+    //        .add_source(config::File::new(
+    //            self.path.as_path().as_os_str().to_str().unwrap(),
+    //            FileFormat::Json,
+    //        ))
+    //        .add_source(config::Environment::with_prefix("BBPM"))
+    //        .build()
+    //        .unwrap();
+    //
+    //    debug!("Done loading BPM config !");
+    //
+    //    Ok(config)
+    //}
 
     /**
      * Handle initializing config for first time
@@ -157,10 +156,17 @@ impl ConfigManager {
     }
 
     /**
-     * Get config path
+     * Get config dir path
+     */
+    pub fn get_path(&self) -> PathBuf {
+        self.path.clone()
+    }
+
+    /**
+     * Get DB config path
      */
     pub fn get_db_path(&self) -> PathBuf {
-        self.path.join(DB_FILENAME)
+        self.path.join(DB_DIR_NAME)
     }
 
     /**
@@ -290,15 +296,60 @@ mod tests {
 
         let expected_config_file_path = &test_dir.into_path().join("config.json");
 
-        ConfigManager::from(expected_config_file_path);
+        let _ = ConfigManager::from(expected_config_file_path);
 
         // Config file is now created, try to load it once again
 
         let config_manager = ConfigManager::from(expected_config_file_path);
 
-        assert_eq!(
-            config_manager.path.as_os_str().to_str().unwrap(),
-            expected_config_file_path.as_os_str().to_str().unwrap()
-        );
+        assert_eq!(config_manager.get_path(), *expected_config_file_path);
+    }
+
+    /**
+     * It should get db path
+     */
+    #[test]
+    fn test_get_db_path() {
+        let test_dir = TempDir::new().unwrap();
+
+        let config_path = &test_dir.into_path();
+
+        let expected_db_path = config_path.join(DB_DIR_NAME);
+
+        let config_manager = ConfigManager::from(config_path);
+
+        assert_eq!(config_manager.get_db_path(), *expected_db_path);
+    }
+
+    /**
+     * It should get signing key
+     */
+    #[test]
+    fn test_get_signing_key() -> Result<(), Box<dyn std::error::Error>> {
+        let test_dir = TempDir::new().unwrap();
+
+        let expected_config_file_path = &test_dir.into_path().join("config.json");
+
+        let config_manager = ConfigManager::from(expected_config_file_path);
+
+        let _ = config_manager.get_signing_key()?;
+
+        Ok(())
+    }
+
+    /**
+     * It should get verifying key
+     */
+    #[test]
+    fn test_get_verifying_key() -> Result<(), Box<dyn std::error::Error>> {
+        let test_dir = TempDir::new().unwrap();
+
+        let expected_config_file_path = &test_dir.into_path().join("config.json");
+
+        let config_manager = ConfigManager::from(expected_config_file_path);
+
+        let _ = config_manager.get_verifying_key()?;
+
+        Ok(())
     }
 }

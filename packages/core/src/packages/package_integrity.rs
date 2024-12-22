@@ -1,31 +1,14 @@
-use polodb_core::bson::{spec::BinarySubtype, Binary, Bson, Document};
 use rlp::{Decodable, Encodable};
 
 /**
  * Package integrity fields
  */
 #[serde_with::serde_as]
-#[derive(serde::Serialize, serde::Deserialize, Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize, Eq, PartialEq, Debug, Clone)]
 pub struct PackageIntegrity {
     pub algorithm: String,
     pub archive_hash: Vec<u8>,
     //pub source_code_hash: String,
-}
-
-impl Into<Bson> for PackageIntegrity {
-    fn into(self) -> Bson {
-        let mut doc = Document::new();
-
-        doc.insert("algorithm", &self.algorithm);
-
-        let archive_hash = Binary {
-            subtype: BinarySubtype::Generic,
-            bytes: self.archive_hash.to_vec(),
-        };
-        doc.insert("archive_hash", archive_hash);
-
-        Bson::Document(doc)
-    }
 }
 
 impl Encodable for PackageIntegrity {

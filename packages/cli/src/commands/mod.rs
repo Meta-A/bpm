@@ -3,15 +3,17 @@ mod mutate;
 mod remove;
 mod submit;
 
-use clap::Parser;
 use bpm_core::{
     config::manager::ConfigManager,
-    services::{blockchains::BlockchainsService, packages::PackagesService},
+    services::{
+        blockchains::BlockchainsService, package_managers::PackageManagersService,
+        packages::PackagesService,
+    },
 };
+use clap::Parser;
 use mutate::MutateCommand;
 use remove::RemoveCommand;
 
-use bpm_core::services::package_managers::PackageManagersService;
 use dialoguer::{theme::ColorfulTheme, Select};
 use install::InstallCommand;
 use std::sync::Arc;
@@ -101,7 +103,7 @@ pub async fn bootstrap(
     packages_service: &Arc<PackagesService>,
     package_managers_service: &Arc<PackageManagersService>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use core::services::packages::PackagesService;
+    use bpm_core::services::packages::PackagesService;
 
     let args = BbpmCLIOptions::parse();
 
