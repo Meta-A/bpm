@@ -230,6 +230,15 @@ impl BlockchainsService {
     }
 
     /**
+     * Find all packages
+     */
+    pub async fn find_all_packages(&self) -> Vec<Package> {
+        let packages = self.packages_service.get_all().await;
+
+        packages
+    }
+
+    /**
      * Submit package to blockchain
      */
     pub async fn submit_package(&self, package: &Package) {

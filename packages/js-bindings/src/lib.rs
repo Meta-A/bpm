@@ -141,8 +141,59 @@ async fn init() -> Arc<BlockchainsService> {
     Arc::clone(&blockchains_service)
 }
 
+fn fetch_packages(mut cx: FunctionContext) -> JsResult<JsPromise> {
+    let rt = runtime(&mut cx)?;
+
+    let channel = cx.channel();
+
+    let (deferred, promise) = cx.promise();
+
+    rt.spawn(async move {
+        let blockchains_service = init().await;
+
+        let packages = blockchains_service.find_all_packages().await;
+
+        deferred.settle_with(&channel, move |mut cx| {
+            let packages_objects: Vec<JsObject> = Vec::new();
+
+            let packages_objects = JsArray::new(&mut cx, packages_objects.len());
+            for (i, package) in packages.iter().enumerate() {
+                let package_obj = JsObject::new(&mut cx);
+
+                let package_obj_name_key = cx.string("package_name");
+                let package_obj_name_value = cx.string(&package.name);
+
+                package_obj.set(&mut cx, package_obj_name_key, package_obj_name_value)?;
+
+                let package_obj_version_key = cx.string("package_version");
+                let package_obj_version_value = cx.string(&package.version);
+
+                package_obj.set(&mut cx, package_obj_version_key, package_obj_version_value)?;
+
+                let package_obj_maintainer_key = cx.string("maintainer");
+                let package_obj_maintainer_value = cx.string(hex::encode(&package.maintainer));
+
+                package_obj.set(
+                    &mut cx,
+                    package_obj_maintainer_key,
+                    package_obj_maintainer_value,
+                )?;
+
+                let index = u32::try_from(i).or_else(|err| cx.throw_error(err.to_string()))?;
+
+                packages_objects.set(&mut cx, index, package_obj)?;
+            }
+
+            Ok(packages_objects)
+        });
+    });
+
+    Ok(promise)
+}
+
 #[neon::main]
 fn main(mut cx: ModuleContext) -> NeonResult<()> {
     cx.export_function("fetchPackage", fetch_package)?;
+    cx.export_function("fetchPackages", fetch_packages)?;
     Ok(())
 }
